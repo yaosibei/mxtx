@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">明心同行</string>
+    <string name="scene_analysis">场景分析</string>
+    <string name="emergency_help">一键求助</string>
+    <string name="community">社区</string>
+    <string name="psychological_support">心理支持</string>
+    <string name="navigation">导航</string>
+    <string name="current_scene">当前场景</string>
+    <string name="suggestions">行动建议</string>
+    <string name="warnings">警告信息</string>
+    <string name="scene_analysis_stopped">场景分析已停止</string>
+    <string name="scene_analysis_running">场景分析中...</string>
+</resources>

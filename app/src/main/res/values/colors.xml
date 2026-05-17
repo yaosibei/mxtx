@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Compose Theme.kt 保持一致的 Material3 配色 -->
+    <color name="primary">#006879</color>
+    <color name="primary_light">#A9EDFF</color>
+    <color name="primary_dark">#001F26</color>
+    <color name="primary_variant">#004E5C</color>
+    <color name="on_primary">#FFFFFF</color>
+
+    <color name="secondary">#4B6268</color>
+    <color name="secondary_light">#CEE7EE</color>
+    <color name="secondary_dark">#061F24</color>
+    <color name="secondary_variant">#334A50</color>
+    <color name="on_secondary">#FFFFFF</color>
+
+    <color name="background">#FAFAFA</color>
+    <color name="on_background">#191C1D</color>
+
+    <color name="surface">#FAFAFA</color>
+    <color name="on_surface">#191C1D</color>
+    <color name="surface_variant">#DBE4E7</color>
+    <color name="on_surface_variant">#3F484B</color>
+
+    <color name="error">#BA1A1A</color>
+    <color name="on_error">#FFFFFF</color>
+    <color name="error_container">#FFDAD6</color>
+
+    <color name="warning">#FF9800</color>
+    <color name="emergency">#BA1A1A</color>
+
+    <color name="text_primary">#191C1D</color>
+    <color name="text_secondary">#3F484B</color>
+    <color name="divider">#6F797B</color>
+    <color name="disabled">#BDBDBD</color>
+    <color name="transparent">#00000000</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+    <color name="gray">#9E9E9E</color>
+    <color name="light_gray">#F5F5F5</color>
+    <color name="dark_gray">#616161</color>
+</resources>
