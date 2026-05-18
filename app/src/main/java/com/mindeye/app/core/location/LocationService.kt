@@ -32,16 +32,45 @@ class LocationService(private val context: Context) {
                 continuation.resume(null)
                 return@suspendCoroutine
             }
+            
+            // 优先尝试获取最近一次已知位置，速度最快
             fusedLocationClient.lastLocation
                 .addOnSuccessListener { location ->
-                    currentLocation = location
-                    continuation.resume(location)
+                    if (location != null) {
+                        currentLocation = location
+                        continuation.resume(location)
+                    } else {
+                        // 如果 lastLocation 为空，则请求当前最新位置
+                        requestFreshLocation(continuation)
+                    }
                 }
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "获取位置失败", e)
-                    continuation.resume(null)
+                    Log.e(TAG, "获取最近位置失败，尝试请求新位置", e)
+                    requestFreshLocation(continuation)
                 }
         }
+    }
+
+    private fun requestFreshLocation(continuation: kotlin.coroutines.Continuation<Location?>) {
+        if (!hasLocationPermission()) {
+            continuation.resume(null)
+            return
+        }
+        
+        val currentRequest = CurrentLocationRequest.Builder()
+            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+            .setMaxUpdateAgeMillis(60000) // 接受 1 分钟内的缓存
+            .build()
+            
+        fusedLocationClient.getCurrentLocation(currentRequest, null)
+            .addOnSuccessListener { location ->
+                currentLocation = location
+                continuation.resume(location)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "请求当前位置失败", e)
+                continuation.resume(null)
+            }
     }
 
     fun getLocationUpdates(): Flow<Location> = callbackFlow {
