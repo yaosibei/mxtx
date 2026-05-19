@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Train
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.Button
@@ -74,12 +75,14 @@ fun DestinationAskScreen(
 ) {
     val context = LocalContext.current
     val sdkValidation = remember(context) { TravelSdkValidator.validate(context) }
+    val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
     var isScreenActive by remember { mutableStateOf(true) }
     var destinationInput by rememberSaveable { mutableStateOf("") }
     var pendingDestination by rememberSaveable { mutableStateOf("") }
     var speechMessage by rememberSaveable { mutableStateOf("正在准备出行语音助手。") }
     var hasAutoPrompted by rememberSaveable { mutableStateOf(false) }
     var showMoreDestinations by rememberSaveable { mutableStateOf(false) }
+    var showCommonDestinations by rememberSaveable { mutableStateOf(false) }
 
     BackHandler {
         XunfeiSpeechManager.stopListening()
@@ -307,67 +310,78 @@ fun DestinationAskScreen(
                     Text("确认前往")
                 }
             }
-            Text(
-                text = "常用目的地",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.semantics { heading() }
-            )
-            DestinationButton(Icons.Default.Home, "回家", "常用路线，一键回家") { selectedDestination ->
-                pendingDestination = selectedDestination
-                destinationInput = selectedDestination
-                speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
-                XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
-                    listenForDestinationConfirmation(
-                        currentDestination = selectedDestination,
-                        onStateChanged = { speechMessage = it },
-                        onDestinationUpdated = {
-                            pendingDestination = it
-                            destinationInput = it
-                        },
-                        onConfirmed = { confirmedDestination ->
-                            handleDestinationConfirmed(confirmedDestination)
-                        },
-                        onRetryInput = { listenForDestination() }
-                    )
+            if (talkBackEnabled) {
+                OutlinedButton(
+                    onClick = { showCommonDestinations = !showCommonDestinations },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text(if (showCommonDestinations) "收起常用目的地" else "选择常用目的地")
                 }
             }
-            DestinationButton(Icons.Default.Train, "高铁站", "人流较大，可提前联系工作人员或志愿者") { selectedDestination ->
-                pendingDestination = selectedDestination
-                destinationInput = selectedDestination
-                speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
-                XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
-                    listenForDestinationConfirmation(
-                        currentDestination = selectedDestination,
-                        onStateChanged = { speechMessage = it },
-                        onDestinationUpdated = {
-                            pendingDestination = it
-                            destinationInput = it
-                        },
-                        onConfirmed = { confirmedDestination ->
-                            handleDestinationConfirmed(confirmedDestination)
-                        },
-                        onRetryInput = { listenForDestination() }
-                    )
+            if (!talkBackEnabled || showCommonDestinations) {
+                Text(
+                    text = "常用目的地",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.semantics { heading() }
+                )
+                DestinationButton(Icons.Default.Home, "回家", "常用路线，一键回家") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
                 }
-            }
-            DestinationButton(Icons.Default.LocalHospital, "医院", "适合提前规划陪同与无障碍入口") { selectedDestination ->
-                pendingDestination = selectedDestination
-                destinationInput = selectedDestination
-                speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
-                XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
-                    listenForDestinationConfirmation(
-                        currentDestination = selectedDestination,
-                        onStateChanged = { speechMessage = it },
-                        onDestinationUpdated = {
-                            pendingDestination = it
-                            destinationInput = it
-                        },
-                        onConfirmed = { confirmedDestination ->
-                            handleDestinationConfirmed(confirmedDestination)
-                        },
-                        onRetryInput = { listenForDestination() }
-                    )
+                DestinationButton(Icons.Default.School, "学校", "校园出行，留意台阶与人群") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
+                }
+                DestinationButton(Icons.Default.Train, "高铁站", "人流较大，可提前联系工作人员或志愿者") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
                 }
             }
             OutlinedButton(
@@ -378,6 +392,44 @@ fun DestinationAskScreen(
                 Text(if (showMoreDestinations) "收起更多目的地" else "更多目的地")
             }
             if (showMoreDestinations) {
+                DestinationButton(Icons.Default.Train, "火车站", "站内复杂，建议提前确认入口与检票口") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
+                }
+                DestinationButton(Icons.Default.LocalHospital, "医院", "适合提前规划陪同与无障碍入口") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
+                }
                 DestinationButton(Icons.Default.TravelExplore, "机场", "适合提前生成服务提醒") { selectedDestination ->
                     pendingDestination = selectedDestination
                     destinationInput = selectedDestination
@@ -880,7 +932,6 @@ fun TravelNavigationScreen(
     val hnustCenterPoint = remember { LatLng(27.904, 112.918) }
     val launchState by AmapNavigationManager.launchState.collectAsState()
     val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
-    var hasRequestedNavigation by rememberSaveable { mutableStateOf(false) }
     var mapPreviewStatus by rememberSaveable { mutableStateOf("正在加载高德地图预览。") }
     var showMoreActions by rememberSaveable { mutableStateOf(false) }
     var showMapPreview by rememberSaveable { mutableStateOf(false) }
@@ -897,17 +948,13 @@ fun TravelNavigationScreen(
         XunfeiSpeechManager.initXunfei(context)
         AmapNavigationManager.resetLaunchState()
         if (!sdkValidation.canUseAmapNavigation) {
-            hasRequestedNavigation = false
             XunfeiSpeechManager.speak("高德导航配置尚未完成，当前无法启动原生无障碍导航")
-        } else if (!hasRequestedNavigation) {
-            hasRequestedNavigation = true
+        } else {
             AmapNavigationManager.setPreferredStartPoint(
                 com.amap.api.maps.model.LatLng(27.904, 112.918),
                 "湖南科技大学"
             )
-            XunfeiSpeechManager.speak("环境检测已完成，正在为您启动高德无障碍步行导航") {
-                TravelAmapNaviLauncher.launch(context, destination)
-            }
+            XunfeiSpeechManager.speak("已进入出行陪伴。如需打开高德导航，请在更多操作中选择重新唤起高德导航")
         }
     }
 
@@ -1162,7 +1209,7 @@ private fun listenForNavigationStartConfirmation(
 }
 
 private fun normalizeTravelDestination(rawText: String): String {
-    return rawText
+    val normalized = rawText
         .trim()
         .replace("我要去", "")
         .replace("我想去", "")
@@ -1173,6 +1220,23 @@ private fun normalizeTravelDestination(rawText: String): String {
         .removePrefix("去")
         .trim()
         .trim('，', '。', '！', '？', ',', '.', '!')
+    return canonicalizeDestination(normalized)
+}
+
+private fun canonicalizeDestination(destination: String): String {
+    val text = destination.trim()
+    if (text.isBlank()) return ""
+    val normalized = text.lowercase()
+
+    if (normalized.contains("高铁") || normalized.contains("动车") || normalized.contains("动车站")) return "高铁站"
+    if (normalized.contains("火车") || normalized.contains("火车站")) return "火车站"
+    if (normalized.contains("家") || normalized.contains("回家")) return "回家"
+    if (normalized.contains("学校") || normalized.contains("大学") || normalized.contains("学院") || normalized.contains("校园")) return "学校"
+    if (normalized.contains("医院")) return "医院"
+    if (normalized.contains("机场")) return "机场"
+    if (normalized.contains("社区") || normalized.contains("服务站")) return "社区服务站"
+
+    return text
 }
 
 private fun isTravelConfirmCommand(command: String): Boolean {
@@ -1202,7 +1266,7 @@ private fun extractCorrectedDestination(command: String): String {
     return normalizeTravelDestination(normalized)
 }
 
-private const val PRE_TRIP_SCAN_DURATION_SECONDS = 8
+private const val PRE_TRIP_SCAN_DURATION_SECONDS = 5
 
 private tailrec fun Context.findActivity(): ComponentActivity? {
     return when (this) {
