@@ -4,7 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -30,6 +33,17 @@ object XunfeiSpeechManager {
     private var isTtsReady = false
     private var hasInit = false
     private val xunfeiResultSegments = linkedMapOf<String, String>()
+    private val pendingUtterances = ArrayDeque<PendingUtterance>()
+    private val pendingTimeouts = mutableMapOf<String, Runnable>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ttsLock = Any()
+
+    private data class PendingUtterance(
+        val utteranceId: String,
+        val text: String
+    )
+
+    fun isTtsReady(): Boolean = isTtsReady
 
     fun initXunfei(context: Context) {
         if (hasInit) return
@@ -51,9 +65,9 @@ object XunfeiSpeechManager {
 
     fun startListening(callback: (String) -> Unit) {
 
-        speak("请说出您要去哪里") {
+        speakAndWait("请说出您要去哪里", onSpoken = {
             listenOnce(callback)
-        }
+        })
     }
 
     fun listenOnce(callback: (String) -> Unit) {
@@ -201,15 +215,55 @@ object XunfeiSpeechManager {
     }
 
     fun speak(text: String, onComplete: () -> Unit = {}) {
+        val utteranceId = UUID.randomUUID().toString()
+        completionActions[utteranceId] = onComplete
+
         val tts = textToSpeech
         if (!isTtsReady || tts == null) {
-            Log.w(TAG, "TTS 尚未就绪，直接跳过播报: $text")
-            onComplete()
+            synchronized(ttsLock) {
+                pendingUtterances.addLast(PendingUtterance(utteranceId = utteranceId, text = text))
+                val timeoutRunnable = Runnable {
+                    val removed = synchronized(ttsLock) {
+                        val iterator = pendingUtterances.iterator()
+                        var found = false
+                        while (iterator.hasNext()) {
+                            if (iterator.next().utteranceId == utteranceId) {
+                                iterator.remove()
+                                found = true
+                                break
+                            }
+                        }
+                        pendingTimeouts.remove(utteranceId)
+                        found
+                    }
+                    if (removed) {
+                        Log.w(TAG, "TTS 初始化超时，跳过播报: $text")
+                        completionActions.remove(utteranceId)?.invoke()
+                    }
+                }
+                pendingTimeouts[utteranceId] = timeoutRunnable
+                mainHandler.postDelayed(timeoutRunnable, 2000L)
+            }
+            Log.w(TAG, "TTS 尚未就绪，已缓存播报: $text")
             return
         }
 
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+    }
+
+    fun speakAndWait(
+        text: String,
+        onSpoken: () -> Unit = {},
+        onUnavailable: () -> Unit = {}
+    ) {
+        val tts = textToSpeech
+        if (!isTtsReady || tts == null) {
+            Log.w(TAG, "TTS 不可用，跳过播报: $text")
+            onUnavailable()
+            return
+        }
         val utteranceId = UUID.randomUUID().toString()
-        completionActions[utteranceId] = onComplete
+        completionActions[utteranceId] = onSpoken
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
@@ -219,6 +273,12 @@ object XunfeiSpeechManager {
     }
 
     fun stopSpeaking() {
+        synchronized(ttsLock) {
+            pendingUtterances.clear()
+            pendingTimeouts.values.forEach { mainHandler.removeCallbacks(it) }
+            pendingTimeouts.clear()
+        }
+        completionActions.clear()
         textToSpeech?.stop()
     }
 
@@ -230,6 +290,11 @@ object XunfeiSpeechManager {
         xunfeiRecognizer?.javaClass?.methods?.firstOrNull { it.name == "destroy" }?.invoke(xunfeiRecognizer)
         xunfeiRecognizer = null
 
+        synchronized(ttsLock) {
+            pendingUtterances.clear()
+            pendingTimeouts.values.forEach { mainHandler.removeCallbacks(it) }
+            pendingTimeouts.clear()
+        }
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
@@ -241,19 +306,36 @@ object XunfeiSpeechManager {
     private fun initSystemTts(context: Context) {
         textToSpeech = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech?.setLanguage(Locale.CHINESE)
-                isTtsReady = result != TextToSpeech.LANG_MISSING_DATA &&
-                    result != TextToSpeech.LANG_NOT_SUPPORTED
+                val tts = textToSpeech
+                val simplifiedResult = tts?.setLanguage(Locale.SIMPLIFIED_CHINESE) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                val result = if (simplifiedResult == TextToSpeech.LANG_MISSING_DATA ||
+                    simplifiedResult == TextToSpeech.LANG_NOT_SUPPORTED
+                ) {
+                    tts?.setLanguage(Locale.CHINESE) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                } else {
+                    simplifiedResult
+                }
+                isTtsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
+                if (isTtsReady) {
+                    flushPendingUtterances()
+                }
             } else {
                 isTtsReady = false
             }
         }.apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
             setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
 
                 override fun onDone(utteranceId: String?) {
                     utteranceId?.let { id ->
                         completionActions.remove(id)?.invoke()
+                        flushPendingUtterances()
                     }
                 }
 
@@ -261,16 +343,31 @@ object XunfeiSpeechManager {
                 override fun onError(utteranceId: String?) {
                     utteranceId?.let { id ->
                         completionActions.remove(id)?.invoke()
+                        flushPendingUtterances()
                     }
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     utteranceId?.let { id ->
                         completionActions.remove(id)?.invoke()
+                        flushPendingUtterances()
                     }
                 }
             })
         }
+    }
+
+    private fun flushPendingUtterances() {
+        val tts = textToSpeech ?: return
+        if (!isTtsReady) return
+
+        val next = synchronized(ttsLock) {
+            if (pendingUtterances.isEmpty()) return
+            val item = pendingUtterances.removeFirst()
+            pendingTimeouts.remove(item.utteranceId)?.let { mainHandler.removeCallbacks(it) }
+            item
+        }
+        tts.speak(next.text, TextToSpeech.QUEUE_FLUSH, null, next.utteranceId)
     }
 
     private fun initSystemStt(context: Context) {
