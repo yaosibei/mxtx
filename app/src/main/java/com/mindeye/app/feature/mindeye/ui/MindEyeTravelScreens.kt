@@ -1230,6 +1230,7 @@ private fun canonicalizeDestination(destination: String): String {
 
     if (normalized.contains("高铁") || normalized.contains("动车") || normalized.contains("动车站")) return "高铁站"
     if (normalized.contains("火车") || normalized.contains("火车站")) return "火车站"
+    if (normalized.contains("车站")) return "火车站"
     if (normalized.contains("家") || normalized.contains("回家")) return "回家"
     if (normalized.contains("学校") || normalized.contains("大学") || normalized.contains("学院") || normalized.contains("校园")) return "学校"
     if (normalized.contains("医院")) return "医院"
