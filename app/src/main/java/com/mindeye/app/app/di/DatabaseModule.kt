@@ -18,13 +18,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
-            context.applicationContext,
-            AppDatabase::class.java,
-            "mindeye_database"
-        )
-        .fallbackToDestructiveMigration()
-        .build()
+        return AppDatabase.getDatabase(context)
     }
 
     @Provides
@@ -61,5 +55,47 @@ object DatabaseModule {
     @Singleton
     fun provideSettingsDao(database: AppDatabase): SettingsDao {
         return database.settingsDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTravelRecordDao(database: AppDatabase): TravelRecordDao {
+        return database.travelRecordDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideVolunteerOrderDao(database: AppDatabase): VolunteerOrderDao {
+        return database.volunteerOrderDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideMoodRecordDao(database: AppDatabase): MoodRecordDao {
+        return database.moodRecordDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideHelpHistoryDao(database: AppDatabase): HelpHistoryDao {
+        return database.helpHistoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideUserBadgeDao(database: AppDatabase): UserBadgeDao {
+        return database.userBadgeDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideVolunteerProfileDao(database: AppDatabase): VolunteerProfileDao {
+        return database.volunteerProfileDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideHelpRequestSyncDao(database: AppDatabase): HelpRequestSyncDao {
+        return database.helpRequestSyncDao()
     }
 }

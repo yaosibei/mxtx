@@ -34,22 +34,46 @@ data class ChatMessage(
     val mood: String? = null
 )
 
+enum class PostStatus {
+    OPEN,
+    ACCEPTED,
+    COMPLETED,
+    CANCELLED
+}
+
 data class CommunityPost(
     val id: String,
     val userId: String,
     val userName: String,
     val content: String,
     val postType: PostType = PostType.TEXT,
+    val status: PostStatus = PostStatus.OPEN,
     val likes: Int = 0,
     val comments: Int = 0,
     val timestamp: Long,
-    val location: String? = null
+    val location: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val volunteerName: String? = null,
+    val timeAgo: String = "",
+    val helpCategory: HelpCategory = HelpCategory.OTHER,
+    val urgencyLevel: UrgencyLevel = UrgencyLevel.LOW,
+    val commentList: List<PostComment> = emptyList()
+)
+
+data class PostComment(
+    val id: String = "",
+    val authorName: String,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val isFromVolunteer: Boolean = false
 )
 
 enum class PostType {
     TEXT,
     VOICE,
-    IMAGE
+    IMAGE,
+    HELP_REQUEST
 }
 
 data class EmergencyContact(

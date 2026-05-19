@@ -5,7 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.mindeye.app.core.model.ChatMessage
 import com.mindeye.app.core.model.GetRecentChatsUseCase
 import com.mindeye.app.core.model.SaveChatUseCase
+import com.mindeye.app.core.model.EncouragementResult
+import com.mindeye.app.core.model.GenerateEncouragementUseCase
 import com.mindeye.app.core.database.entity.ChatHistoryEntity
+import com.mindeye.app.core.network.ApiService
+import com.mindeye.app.core.model.ChatSupportRequest
 import com.mindeye.app.di.TextToSpeechManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -13,21 +17,38 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 import javax.inject.Inject
+
+data class MoodTrend(
+    val date: String,
+    val mood: String,
+    val moodLabel: String
+)
 
 data class SupportUiState(
     val messages: List<ChatMessage> = emptyList(),
     val isTyping: Boolean = false,
     val currentMood: String = "normal",
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val encouragement: EncouragementResult? = null,
+    val showEncouragement: Boolean = false,
+    val moodHistory: List<MoodTrend> = emptyList(),
+    val showMoodHistory: Boolean = false,
+    val suggestedReplies: List<String> = emptyList(),
+    val dailyTip: String = "",
+    val conversationCount: Int = 0
 )
 
 @HiltViewModel
 class SupportViewModel @Inject constructor(
     private val getRecentChatsUseCase: GetRecentChatsUseCase,
     private val saveChatUseCase: SaveChatUseCase,
-    private val ttsManager: TextToSpeechManager
+    private val ttsManager: TextToSpeechManager,
+    private val apiService: ApiService,
+    private val generateEncouragementUseCase: GenerateEncouragementUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SupportUiState())
@@ -35,10 +56,90 @@ class SupportViewModel @Inject constructor(
 
     init {
         loadChatHistory()
+        loadDailyTip()
+    }
+
+    private fun loadDailyTip() {
+        val tips = listOf(
+            "每天给自己一个微笑，就算一开始是假装的，慢慢也会变成真的。",
+            "出行不顺利时，深呼吸三次，告诉自己：我已经很棒了。",
+            "和别人分享你的感受，哪怕是简单的一句话，也能让心里轻松很多。",
+            "不要害怕求助，每个人都会有需要帮助的时候，这很正常。",
+            "今天完成了出行，就是一件值得骄傲的事情。",
+            "情绪低落时，试着做三个深呼吸，感受空气进入和离开身体。",
+            "社区里有很多人和你一样在互相支持，你从来不是一个人。",
+            "每次出门都是一次勇敢的尝试，为自己点赞！",
+            "遇到困难时，想想自己已经克服了多少困难，你会更有力量。",
+            "记住：你的价值不取决于你能做什么，而在于你是谁。"
+        )
+        val dayIndex = Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % tips.size
+        _uiState.value = _uiState.value.copy(dailyTip = tips[dayIndex])
     }
 
     fun setCurrentMood(mood: String) {
         _uiState.value = _uiState.value.copy(currentMood = mood)
+        updateSuggestedReplies(mood)
+    }
+
+    private fun updateSuggestedReplies(mood: String) {
+        val suggestions = when (mood) {
+            "happy" -> listOf(
+                "今天遇到了开心的事情",
+                "想分享一件好事",
+                "心情很好，想聊聊"
+            )
+            "sad" -> listOf(
+                "今天有点不开心",
+                "感觉有些孤独",
+                "想找人聊聊天"
+            )
+            "anxious" -> listOf(
+                "有些紧张怎么办",
+                "出门总是很担心",
+                "心跳有点快"
+            )
+            "angry" -> listOf(
+                "今天遇到生气的事",
+                "觉得很烦躁",
+                "心情不好"
+            )
+            else -> listOf(
+                "最近怎么样",
+                "想聊聊天",
+                "有什么想对我说的"
+            )
+        }
+        _uiState.value = _uiState.value.copy(suggestedReplies = suggestions)
+    }
+
+    fun toggleEncouragement() {
+        _uiState.value = _uiState.value.copy(showEncouragement = !_uiState.value.showEncouragement)
+    }
+
+    fun toggleMoodHistory() {
+        _uiState.value = _uiState.value.copy(showMoodHistory = !_uiState.value.showMoodHistory)
+    }
+
+    fun loadEncouragement(userId: String) {
+        viewModelScope.launch {
+            try {
+                val result = generateEncouragementUseCase.execute(userId)
+                _uiState.value = _uiState.value.copy(encouragement = result)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    encouragement = EncouragementResult(
+                        message = "暂时无法获取出行鼓励，勇敢出门走走吧！",
+                        travelCount = 0,
+                        totalDistance = 0.0,
+                        totalDurationMinutes = 0
+                    )
+                )
+            }
+        }
+    }
+
+    fun sendQuickReply(message: String) {
+        sendMessage(message)
     }
 
     fun sendMessage(message: String) {
@@ -63,9 +164,20 @@ class SupportViewModel @Inject constructor(
             )
             saveChatUseCase(userEntity)
 
+            val newCount = _uiState.value.conversationCount + 1
+            _uiState.value = _uiState.value.copy(conversationCount = newCount)
+
             delay(800)
 
-            val aiReply = generateAiReply(message, _uiState.value.currentMood)
+            val aiReply = try {
+                val response = apiService.getMultimodalService().chatSupport(
+                    ChatSupportRequest(userId = "local_user", message = message, mood = _uiState.value.currentMood)
+                )
+                response.reply
+            } catch (e: Exception) {
+                generateAiReply(message, _uiState.value.currentMood)
+            }
+
             val aiMessage = ChatMessage(content = aiReply, isFromUser = false)
             currentMessages.add(aiMessage)
 
@@ -86,7 +198,6 @@ class SupportViewModel @Inject constructor(
 
     private fun generateAiReply(message: String, mood: String): String {
         val lowerMsg = message.lowercase()
-        // 情绪维度
         val moodResponse = when (mood) {
             "happy" -> listOf(
                 "听到你心情不错，我也很开心！继续保持这份好心情哦。",
@@ -115,7 +226,6 @@ class SupportViewModel @Inject constructor(
             )
         }
 
-        // 关键词匹配扩展回复
         val keywordResponse = when {
             lowerMsg.contains("累") || lowerMsg.contains("辛苦") -> listOf(
                 "出门确实不容易，你已经在努力了，这本身就很棒。",
@@ -170,7 +280,8 @@ class SupportViewModel @Inject constructor(
                         )
                     }
                 }
-                _uiState.value = _uiState.value.copy(messages = messages.reversed())
+                val count = chats.count { it.isFromUser }
+                _uiState.value = _uiState.value.copy(messages = messages.reversed(), conversationCount = count)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(errorMessage = e.message)
             }
@@ -179,5 +290,10 @@ class SupportViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
+    private fun formatTimestamp(ts: Long): String {
+        val sdf = SimpleDateFormat("MM-dd", Locale.getDefault())
+        return sdf.format(Date(ts))
     }
 }

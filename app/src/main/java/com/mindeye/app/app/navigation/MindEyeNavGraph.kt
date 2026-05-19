@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -29,7 +31,10 @@ import com.mindeye.app.feature.home.viewmodel.HomeViewModel
 import com.mindeye.app.feature.psychology.viewmodel.SupportViewModel
 import com.mindeye.app.feature.community.viewmodel.CommunityViewModel
 import com.mindeye.app.feature.sos.viewmodel.EmergencyViewModel
+import com.mindeye.app.feature.profile.ui.RoleSelectionScreen
+import com.mindeye.app.core.model.UserRoleManager
 import com.mindeye.app.feature.mindeye.viewmodel.OcrViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -54,6 +59,7 @@ sealed class Screen(val route: String) {
     data object OcrResult : Screen("ocr_result") {
         fun createRoute(text: String): String = "ocr_result/${URLEncoder.encode(text, "UTF-8")}"
     }
+    data object RoleSelection : Screen("role_selection")
 }
 
 private fun enterTransition() = slideInHorizontally(
@@ -175,7 +181,8 @@ fun MindEyeNavGraph(
             val viewModel: CommunityViewModel = hiltViewModel()
             CommunityScreen(
                 viewModel = viewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToRoleSelection = { navController.navigate(Screen.RoleSelection.route) }
             )
         }
 
@@ -191,6 +198,21 @@ fun MindEyeNavGraph(
             val viewModel: SettingsViewModel = hiltViewModel()
             SettingsScreen(
                 viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToRoleSelection = { navController.navigate(Screen.RoleSelection.route) }
+            )
+        }
+
+        composable(Screen.RoleSelection.route) {
+            val settingsViewModel: SettingsViewModel = hiltViewModel()
+            val currentRole by settingsViewModel.userRole.collectAsState(initial = "user")
+            RoleSelectionScreen(
+                roleManager = settingsViewModel.roleManager,
+                currentRole = currentRole,
+                onRoleChanged = { role ->
+                    settingsViewModel.setUserRole(role)
+                    navController.popBackStack()
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }

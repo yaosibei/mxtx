@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mindeye.app.core.database.dao.SettingsDao
 import com.mindeye.app.core.database.entity.SettingsEntity
+import com.mindeye.app.core.model.UserRoleManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,14 +23,32 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsDao: SettingsDao
+    private val settingsDao: SettingsDao,
+    val roleManager: UserRoleManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    private val _userRole = MutableStateFlow("user")
+    val userRole: StateFlow<String> = _userRole.asStateFlow()
+
     init {
         loadSettings()
+        loadUserRole()
+    }
+
+    private fun loadUserRole() {
+        viewModelScope.launch {
+            _userRole.value = roleManager.getUserRole()
+        }
+    }
+
+    fun setUserRole(role: String) {
+        viewModelScope.launch {
+            roleManager.setUserRole(role)
+            _userRole.value = role
+        }
     }
 
     private fun loadSettings() {

@@ -6,7 +6,7 @@ import retrofit2.http.*
 
 /**
  * 社区服务接口
- * 用于盲人社区互动功能
+ * 用于盲人社区互动功能 - 增强版，包含志愿者接单、评价等完整功能
  */
 interface CommunityApiService {
 
@@ -58,6 +58,85 @@ interface CommunityApiService {
      */
     @GET("v1/emergency/contacts")
     suspend fun getEmergencyContacts(): EmergencyContactsResponse
+
+    /**
+     * 发布求助请求
+     */
+    @POST("v1/community/help-requests")
+    suspend fun createHelpRequest(@Body request: CreateHelpRequest): HelpRequestResponse
+
+    /**
+     * 获取求助列表
+     */
+    @GET("v1/community/help-requests")
+    suspend fun getHelpRequests(
+        @Query("status") status: String? = null,
+        @Query("category") category: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 50
+    ): HelpRequestsResponse
+
+    /**
+     * 志愿者接单
+     */
+    @POST("v1/community/help-requests/{postId}/accept")
+    suspend fun acceptHelpRequest(
+        @Path("postId") postId: String,
+        @Body request: AcceptHelpRequest
+    ): AcceptResponse
+
+    /**
+     * 完成求助
+     */
+    @POST("v1/community/help-requests/{postId}/complete")
+    suspend fun completeHelpRequest(
+        @Path("postId") postId: String,
+        @Body request: CompleteHelpRequest
+    ): CompleteResponse
+
+    /**
+     * 评价求助服务
+     */
+    @POST("v1/community/help-requests/{postId}/rate")
+    suspend fun rateHelpRequest(
+        @Path("postId") postId: String,
+        @Body request: RateHelpRequest
+    ): RateResponse
+
+    /**
+     * 获取志愿者信息
+     */
+    @GET("v1/community/volunteers/{volunteerId}")
+    suspend fun getVolunteerProfile(@Path("volunteerId") volunteerId: String): VolunteerProfileResponse
+
+    /**
+     * 更新志愿者信息
+     */
+    @PUT("v1/community/volunteers/{volunteerId}")
+    suspend fun updateVolunteerProfile(
+        @Path("volunteerId") volunteerId: String,
+        @Body request: UpdateVolunteerRequest
+    ): VolunteerProfileResponse
+
+    /**
+     * 获取志愿者排行榜
+     */
+    @GET("v1/community/volunteers/ranking")
+    suspend fun getVolunteerRanking(
+        @Query("limit") limit: Int = 10
+    ): VolunteerRankingResponse
+
+    /**
+     * 获取我的求助历史
+     */
+    @GET("v1/community/users/{userId}/help-history")
+    suspend fun getUserHelpHistory(@Path("userId") userId: String): HelpHistoryResponse
+
+    /**
+     * 获取志愿者的接单历史
+     */
+    @GET("v1/community/volunteers/{volunteerId}/orders")
+    suspend fun getVolunteerOrders(@Path("volunteerId") volunteerId: String): VolunteerOrdersResponse
 }
 
 /**
@@ -172,4 +251,210 @@ data class EmergencyContact(
     val name: String,
     val phone: String,
     val relationship: String
+)
+
+/**
+ * 创建求助请求
+ */
+data class CreateHelpRequest(
+    val userId: String,
+    val userName: String,
+    val content: String,
+    val helpCategory: String = "OTHER",
+    val urgencyLevel: String = "LOW",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationName: String? = null
+)
+
+/**
+ * 求助响应
+ */
+data class HelpRequestResponse(
+    val postId: String,
+    val success: Boolean,
+    val message: String? = null
+)
+
+/**
+ * 求助列表响应
+ */
+data class HelpRequestsResponse(
+    val requests: List<HelpRequestItem>,
+    val total: Int,
+    val hasMore: Boolean
+)
+
+/**
+ * 求助项
+ */
+data class HelpRequestItem(
+    val id: String,
+    val userId: String,
+    val userName: String,
+    val content: String,
+    val helpCategory: String,
+    val urgencyLevel: String,
+    val status: String,
+    val locationName: String?,
+    val latitude: Double?,
+    val longitude: Double?,
+    val volunteerName: String?,
+    val createdAt: Long,
+    val commentCount: Int = 0,
+    val likeCount: Int = 0
+)
+
+/**
+ * 接单请求
+ */
+data class AcceptHelpRequest(
+    val volunteerId: String,
+    val volunteerName: String
+)
+
+/**
+ * 接单响应
+ */
+data class AcceptResponse(
+    val orderId: String,
+    val success: Boolean,
+    val message: String? = null
+)
+
+/**
+ * 完成请求
+ */
+data class CompleteHelpRequest(
+    val volunteerId: String,
+    val notes: String? = null
+)
+
+/**
+ * 完成响应
+ */
+data class CompleteResponse(
+    val success: Boolean,
+    val message: String? = null
+)
+
+/**
+ * 评价请求
+ */
+data class RateHelpRequest(
+    val userId: String,
+    val rating: Int,
+    val feedback: String? = null
+)
+
+/**
+ * 评价响应
+ */
+data class RateResponse(
+    val success: Boolean,
+    val message: String? = null
+)
+
+/**
+ * 志愿者资料响应
+ */
+data class VolunteerProfileResponse(
+    val volunteerId: String,
+    val userId: String,
+    val name: String,
+    val avatar: String?,
+    val serviceCount: Int,
+    val completedOrders: Int,
+    val rating: Double,
+    val totalHours: Long,
+    val joinDate: Long,
+    val level: String,
+    val badges: List<VolunteerBadge>
+)
+
+/**
+ * 志愿者徽章
+ */
+data class VolunteerBadge(
+    val id: String,
+    val name: String,
+    val description: String,
+    val icon: String,
+    val earnedDate: Long?
+)
+
+/**
+ * 更新志愿者请求
+ */
+data class UpdateVolunteerRequest(
+    val name: String? = null,
+    val avatar: String? = null,
+    val isActive: Boolean? = null
+)
+
+/**
+ * 志愿者排行榜响应
+ */
+data class VolunteerRankingResponse(
+    val volunteers: List<RankedVolunteer>
+)
+
+/**
+ * 排行榜志愿者
+ */
+data class RankedVolunteer(
+    val volunteerId: String,
+    val name: String,
+    val avatar: String?,
+    val serviceCount: Int,
+    val rating: Double,
+    val rank: Int
+)
+
+/**
+ * 帮助历史响应
+ */
+data class HelpHistoryResponse(
+    val history: List<HelpHistoryItem>
+)
+
+/**
+ * 帮助历史项
+ */
+data class HelpHistoryItem(
+    val historyId: String,
+    val postId: String,
+    val helperId: String,
+    val helperName: String,
+    val helpCategory: String,
+    val content: String,
+    val rating: Int,
+    val feedback: String?,
+    val createdAt: Long,
+    val completedAt: Long?
+)
+
+/**
+ * 志愿者订单响应
+ */
+data class VolunteerOrdersResponse(
+    val orders: List<VolunteerOrderItem>
+)
+
+/**
+ * 志愿者订单项
+ */
+data class VolunteerOrderItem(
+    val orderId: String,
+    val postId: String,
+    val requesterId: String,
+    val requesterName: String,
+    val status: String,
+    val content: String,
+    val helpCategory: String,
+    val createdAt: Long,
+    val acceptedAt: Long?,
+    val completedAt: Long?,
+    val rating: Int,
+    val feedback: String?
 )
