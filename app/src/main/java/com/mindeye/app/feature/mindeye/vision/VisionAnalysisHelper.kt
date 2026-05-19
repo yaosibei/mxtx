@@ -25,6 +25,8 @@ object VisionAnalysisHelper {
 
     private const val TAG = "VisionAnalysisHelper"
     private const val SAME_OBJECT_INTERVAL_MS = 5_000L
+    private const val MIN_ANALYSIS_INTERVAL_MS = 350L
+    private const val MIN_ANNOUNCE_INTERVAL_MS = 1_200L
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageAnalysis: ImageAnalysis? = null
@@ -35,6 +37,8 @@ object VisionAnalysisHelper {
     private val lastAnnounceMap = mutableMapOf<String, Long>()
     private val isProcessingFrame = AtomicBoolean(false)
     private val isReleased = AtomicBoolean(false)
+    private var lastAnalysisTime = 0L
+    private var lastAnnounceTime = 0L
 
     fun startCamera(
         context: Context,
@@ -128,6 +132,13 @@ object VisionAnalysisHelper {
     private class FrameAnalyzer : ImageAnalysis.Analyzer {
 
         override fun analyze(imageProxy: ImageProxy) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAnalysisTime < MIN_ANALYSIS_INTERVAL_MS) {
+                imageProxy.close()
+                return
+            }
+            lastAnalysisTime = now
+
             val mediaImage = imageProxy.image
             val detector = objectDetector
             if (isReleased.get() || mediaImage == null || detector == null) {
@@ -145,28 +156,64 @@ object VisionAnalysisHelper {
                 imageProxy.imageInfo.rotationDegrees
             )
 
+            val callbackExecutor = analysisExecutor
             detector.process(inputImage)
-                .addOnSuccessListener { detectedObjects ->
-                    if (!isReleased.get()) {
-                        handleDetectedObjects(detectedObjects)
+                .let { task ->
+                    if (callbackExecutor != null) {
+                        task
+                            .addOnSuccessListener(callbackExecutor) { detectedObjects ->
+                                if (!isReleased.get()) {
+                                    handleDetectedObjects(detectedObjects)
+                                }
+                            }
+                            .addOnFailureListener(callbackExecutor) { error ->
+                                Log.e(TAG, "ML Kit 物体检测失败: ${error.message}", error)
+                            }
+                            .addOnCompleteListener(callbackExecutor) {
+                                isProcessingFrame.set(false)
+                                imageProxy.close()
+                            }
+                    } else {
+                        task
+                            .addOnSuccessListener { detectedObjects ->
+                                if (!isReleased.get()) {
+                                    handleDetectedObjects(detectedObjects)
+                                }
+                            }
+                            .addOnFailureListener { error ->
+                                Log.e(TAG, "ML Kit 物体检测失败: ${error.message}", error)
+                            }
+                            .addOnCompleteListener {
+                                isProcessingFrame.set(false)
+                                imageProxy.close()
+                            }
                     }
-                }
-                .addOnFailureListener { error ->
-                    Log.e(TAG, "ML Kit 物体检测失败: ${error.message}", error)
-                }
-                .addOnCompleteListener {
-                    isProcessingFrame.set(false)
-                    imageProxy.close()
                 }
         }
 
         private fun handleDetectedObjects(detectedObjects: List<DetectedObject>) {
-            detectedObjects.forEach { detectedObject ->
-                val objectName = resolveObjectName(detectedObject)
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAnnounceTime < MIN_ANNOUNCE_INTERVAL_MS) return
+
+            val candidates = detectedObjects
+                .map { resolveObjectName(it) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(2)
+
+            candidates.forEach { objectName ->
                 if (shouldAnnounce(objectName)) {
-                    lastAnnounceMap[objectName] = SystemClock.elapsedRealtime()
-                    XunfeiSpeechManager.speak("前方发现$objectName，请注意安全")
+                    lastAnnounceMap[objectName] = now
                 }
+            }
+
+            val announceText = candidates.firstOrNull()
+                ?.takeIf { shouldAnnounce(it) }
+                ?.let { "前方发现$it，请注意安全" }
+
+            if (!announceText.isNullOrBlank()) {
+                lastAnnounceTime = now
+                XunfeiSpeechManager.speak(announceText)
             }
         }
 

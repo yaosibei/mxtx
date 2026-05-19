@@ -50,9 +50,16 @@ object XunfeiSpeechManager {
     }
 
     fun startListening(callback: (String) -> Unit) {
+
+        speak("请说出您要去哪里") {
+            listenOnce(callback)
+        }
+    }
+
+    fun listenOnce(callback: (String) -> Unit) {
         val context = appContext
         if (context == null) {
-            Log.e(TAG, "startListening 调用失败，未完成初始化")
+            Log.e(TAG, "listenOnce 调用失败，未完成初始化")
             callback("")
             return
         }
@@ -63,17 +70,15 @@ object XunfeiSpeechManager {
             return
         }
 
-        speak("请说出您要去哪里") {
-            // 每次启动识别前都清理一次分段结果，确保识别内容不串
-            xunfeiResultSegments.clear()
-            
-            if (xunfeiRecognizer != null) {
-                Log.d(TAG, "优先启动讯飞 SDK 语音识别")
-                startXunfeiListening(callback)
-            } else {
-                Log.w(TAG, "讯飞 SDK 不可用，回退系统语音识别")
-                startSystemListening(callback)
-            }
+        // 每次启动识别前都清理一次分段结果，确保识别内容不串
+        xunfeiResultSegments.clear()
+
+        if (xunfeiRecognizer != null) {
+            Log.d(TAG, "优先启动讯飞 SDK 语音识别")
+            startXunfeiListening(callback)
+        } else {
+            Log.w(TAG, "讯飞 SDK 不可用，回退系统语音识别")
+            startSystemListening(callback)
         }
     }
 

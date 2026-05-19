@@ -53,6 +53,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".feature.mindeye.navigation.TravelAmapNaviActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.MindEye" />
+
+        <activity
+            android:name=".feature.mindeye.navigation.TravelAmapRouteActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <!-- 文件提供者 -->
         <provider
             android:name="androidx.core.content.FileProvider"
