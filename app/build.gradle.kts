@@ -1,3 +1,16 @@
+import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+import java.util.Properties
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -17,8 +30,14 @@ android {
         versionCode = 1
         versionName = "2.0.0"
 
+        manifestPlaceholders["AMAP_API_KEY"] = localProperties.getProperty("amap.api.key", "")
+        buildConfigField("String", "XUNFEI_APP_ID", "\"${localProperties.getProperty("xunfei.appId", "")}\"")
+        buildConfigField("String", "XUNFEI_API_KEY", "\"${localProperties.getProperty("xunfei.apiKey", "")}\"")
+        buildConfigField("String", "XUNFEI_API_SECRET", "\"${localProperties.getProperty("xunfei.apiSecret", "")}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
 
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
@@ -45,14 +64,34 @@ android {
     buildFeatures {
         viewBinding = true
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.4"
     }
+
+    sourceSets {
+        getByName("main") {
+            // 统一使用标准 jniLibs 目录，避免与 app/libs 下的原始 SDK 文件重复打包。
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+    
+    applicationVariants.all {
+        if (buildType.name == "debug") {
+            outputs.all {
+                val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
+                (this as? BaseVariantOutputImpl)?.outputFileName = "mxtx-$name-$timestamp.apk"
+            }
+        }
+    }
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    implementation(files("libs/arm64-v8a/armeabi-v7a/Msc.jar"))
+
     // AndroidX 核心库
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
@@ -123,6 +162,8 @@ dependencies {
 
     // 位置服务
     implementation("com.google.android.gms:play-services-location:21.0.1")
+    implementation("com.amap.api:search:9.7.0")
+    implementation("com.amap.api:navi-3dmap:10.0.700_3dmap10.0.700")
 
     // 图片加载
     implementation("com.github.bumptech.glide:glide:4.16.0")

@@ -39,5 +39,17 @@
 # Google Play Services
 -keep class com.google.android.gms.** { *; }
 
+# AMap Search / Navi
+-keep class com.amap.api.maps.** { *; }
+-keep class com.amap.api.services.** { *; }
+-keep class com.amap.api.navi.** { *; }
+-keep class com.autonavi.** { *; }
+-dontwarn com.amap.api.**
+-dontwarn com.autonavi.**
+
+# Xunfei SDK
+-keep class com.iflytek.** { *; }
+-dontwarn com.iflytek.**
+
 # Compose
 -keep class androidx.compose.** { *; }

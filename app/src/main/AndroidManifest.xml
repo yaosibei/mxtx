@@ -9,10 +9,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
@@ -33,6 +36,11 @@
         android:theme="@style/Theme.MindEye"
         tools:targetApi="31">
 
+        <!-- TODO: Trae 新增逻辑，高德 Key 通过 app/build.gradle.kts 中的 manifestPlaceholders 注入 -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${AMAP_API_KEY}" />
+
         <!-- 主界面 -->
         <activity
             android:name=".ui.MainActivity"
@@ -44,6 +52,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".feature.mindeye.navigation.TravelAmapNaviActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.MindEye" />
+
+        <activity
+            android:name=".feature.mindeye.navigation.TravelAmapRouteActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <!-- 文件提供者 -->
         <provider
