@@ -107,8 +107,12 @@ fun MindEyeNavGraph(
 
         composable(Screen.MindEyeDestination.route) {
             DestinationAskScreen(
-                onDestinationSelected = { destination ->
-                    navController.navigate(Screen.MindEyePreTripScan.createRoute(destination))
+                onDestinationSelected = { destination, skipCheck ->
+                    if (skipCheck) {
+                        navController.navigate(Screen.MindEyeTravelPlan.createRoute(destination))
+                    } else {
+                        navController.navigate(Screen.MindEyePreTripScan.createRoute(destination))
+                    }
                 },
                 onNavigateBack = { navController.popBackStack() }
             )

@@ -35,16 +35,19 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mindeye.app.feature.common.ui.isTouchExplorationEnabled
 import com.mindeye.app.feature.home.viewmodel.HomeViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +62,8 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
 
     Scaffold(
         topBar = {
@@ -97,12 +102,19 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 四个功能模块 2x2 网格
-            FeatureGrid(
-                onNavigateToCommunity = onNavigateToCommunity,
-                onNavigateToPsychology = onNavigateToPsychology,
-                onNavigateToSettings = onNavigateToSettings
-            )
+            if (talkBackEnabled) {
+                FeatureList(
+                    onNavigateToCommunity = onNavigateToCommunity,
+                    onNavigateToPsychology = onNavigateToPsychology,
+                    onNavigateToSettings = onNavigateToSettings
+                )
+            } else {
+                FeatureGrid(
+                    onNavigateToCommunity = onNavigateToCommunity,
+                    onNavigateToPsychology = onNavigateToPsychology,
+                    onNavigateToSettings = onNavigateToSettings
+                )
+            }
 
             Spacer(modifier = Modifier.height(40.dp))
         }
@@ -273,6 +285,60 @@ private fun FeatureGrid(
                 iconColor = Color(0xFF2E7D32),
                 textColor = Color(0xFF1B5E20)
             )
+        }
+    }
+}
+
+@Composable
+private fun FeatureList(
+    onNavigateToCommunity: () -> Unit,
+    onNavigateToPsychology: () -> Unit,
+    onNavigateToSettings: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        FeatureListButton(
+            icon = Icons.Default.People,
+            title = "社区互助",
+            description = "发布求助、志愿者接单",
+            onClick = onNavigateToCommunity
+        )
+        FeatureListButton(
+            icon = Icons.Default.Psychology,
+            title = "心理支持",
+            description = "AI陪伴、温暖问答",
+            onClick = onNavigateToPsychology
+        )
+        FeatureListButton(
+            icon = Icons.Default.Settings,
+            title = "设置",
+            description = "提醒方式、隐私与长辈模式",
+            onClick = onNavigateToSettings
+        )
+    }
+}
+
+@Composable
+private fun FeatureListButton(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(92.dp)
+            .semantics { contentDescription = "$title，$description" },
+        shape = RoundedCornerShape(22.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(34.dp))
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+            Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = description, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }

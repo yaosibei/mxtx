@@ -8,11 +8,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -48,11 +46,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.mindeye.app.feature.common.ui.isTouchExplorationEnabled
 import com.amap.api.maps.model.LatLng
 import com.mindeye.app.feature.mindeye.helper.TravelStrategyHelper
 import com.mindeye.app.feature.mindeye.navigation.AmapNavigationManager
@@ -65,10 +65,10 @@ import com.mindeye.app.feature.mindeye.vision.VisionAnalysisHelper
  * 明心之眼 - 目的地询问页面。
  * 这里对应你的想法：点击“开始出行”后，先问用户要去哪里。
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DestinationAskScreen(
-    onDestinationSelected: (String) -> Unit,
+    onDestinationSelected: (String, Boolean) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -78,11 +78,48 @@ fun DestinationAskScreen(
     var pendingDestination by rememberSaveable { mutableStateOf("") }
     var speechMessage by rememberSaveable { mutableStateOf("正在准备出行语音助手。") }
     var hasAutoPrompted by rememberSaveable { mutableStateOf(false) }
+    var showMoreDestinations by rememberSaveable { mutableStateOf(false) }
 
     BackHandler {
         XunfeiSpeechManager.stopListening()
         XunfeiSpeechManager.stopSpeaking()
         onNavigateBack()
+    }
+
+    var showPreTripInquiry by remember { mutableStateOf(false) }
+
+    fun handleDestinationConfirmed(confirmedDestination: String) {
+        destinationInput = confirmedDestination
+        pendingDestination = confirmedDestination
+        showPreTripInquiry = true
+        speechMessage = "目的地已确认：$confirmedDestination。建议出发前进行环境检查，是否开始？说“是”开始检查，说“否”直接出发。"
+        XunfeiSpeechManager.speak("目的地已确认。建议在出发前进行环境检查，说“是”开始检查，或说“否”直接出发") {
+            if (!isScreenActive) return@speak
+            listenForPreTripCheckConfirmation(
+                onConfirm = { onDestinationSelected(confirmedDestination, false) },
+                onSkip = { onDestinationSelected(confirmedDestination, true) },
+                onRetry = { handleDestinationConfirmed(confirmedDestination) }
+            )
+        }
+    }
+
+    if (showPreTripInquiry) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPreTripInquiry = false },
+            title = { Text("出行前检查") },
+            text = { Text("为了您的安全，建议在出发前进行环境环境检查（识别障碍物、楼梯等）。是否现在开始？") },
+            confirmButton = {
+                Button(onClick = { onDestinationSelected(destinationInput, false) }) {
+                    Text("开始检查")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { onDestinationSelected(destinationInput, true) }) {
+                    Text("直接出发")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
     }
 
     fun listenForDestination() {
@@ -113,14 +150,7 @@ fun DestinationAskScreen(
                         },
                         onConfirmed = { confirmedDestination ->
                             if (!isScreenActive) return@listenForDestinationConfirmation
-                            destinationInput = confirmedDestination
-                            pendingDestination = confirmedDestination
-                            speechMessage = "已确认目的地：$confirmedDestination，正在进入环境检测。"
-                            XunfeiSpeechManager.speak("已确认目的地$confirmedDestination，现在开始环境检测") {
-                                if (isScreenActive) {
-                                    onDestinationSelected(confirmedDestination)
-                                }
-                            }
+                            handleDestinationConfirmed(confirmedDestination)
                         },
                         onRetryInput = { listenForDestination() }
                     )
@@ -258,14 +288,7 @@ fun DestinationAskScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .combinedClickable(
-                            onClick = {},
-                            onDoubleClick = { onDestinationSelected(destinationInput.trim()) },
-                            onLongClick = { startVoiceInput() }
-                        )
-                        .semantics {
-                            contentDescription = "当前目的地$destinationInput，双击确认前往，长按重新输入"
-                        },
+                        .semantics(mergeDescendants = true) { },
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                 ) {
@@ -276,13 +299,19 @@ fun DestinationAskScreen(
                     }
                 }
                 OutlinedButton(
-                    onClick = { onDestinationSelected(destinationInput.trim()) },
+                    onClick = { handleDestinationConfirmed(destinationInput.trim()) },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp)
                 ) {
                     Text("确认前往")
                 }
             }
+            Text(
+                text = "常用目的地",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.semantics { heading() }
+            )
             DestinationButton(Icons.Default.Home, "回家", "常用路线，一键回家") { selectedDestination ->
                 pendingDestination = selectedDestination
                 destinationInput = selectedDestination
@@ -296,7 +325,7 @@ fun DestinationAskScreen(
                             destinationInput = it
                         },
                         onConfirmed = { confirmedDestination ->
-                            onDestinationSelected(confirmedDestination)
+                            handleDestinationConfirmed(confirmedDestination)
                         },
                         onRetryInput = { listenForDestination() }
                     )
@@ -315,26 +344,7 @@ fun DestinationAskScreen(
                             destinationInput = it
                         },
                         onConfirmed = { confirmedDestination ->
-                            onDestinationSelected(confirmedDestination)
-                        },
-                        onRetryInput = { listenForDestination() }
-                    )
-                }
-            }
-            DestinationButton(Icons.Default.TravelExplore, "机场", "适合提前生成服务提醒") { selectedDestination ->
-                pendingDestination = selectedDestination
-                destinationInput = selectedDestination
-                speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
-                XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
-                    listenForDestinationConfirmation(
-                        currentDestination = selectedDestination,
-                        onStateChanged = { speechMessage = it },
-                        onDestinationUpdated = {
-                            pendingDestination = it
-                            destinationInput = it
-                        },
-                        onConfirmed = { confirmedDestination ->
-                            onDestinationSelected(confirmedDestination)
+                            handleDestinationConfirmed(confirmedDestination)
                         },
                         onRetryInput = { listenForDestination() }
                     )
@@ -353,29 +363,57 @@ fun DestinationAskScreen(
                             destinationInput = it
                         },
                         onConfirmed = { confirmedDestination ->
-                            onDestinationSelected(confirmedDestination)
+                            handleDestinationConfirmed(confirmedDestination)
                         },
                         onRetryInput = { listenForDestination() }
                     )
                 }
             }
-            DestinationButton(Icons.Default.Map, "社区服务站", "适合附近路线和志愿者协助") { selectedDestination ->
-                pendingDestination = selectedDestination
-                destinationInput = selectedDestination
-                speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
-                XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
-                    listenForDestinationConfirmation(
-                        currentDestination = selectedDestination,
-                        onStateChanged = { speechMessage = it },
-                        onDestinationUpdated = {
-                            pendingDestination = it
-                            destinationInput = it
-                        },
-                        onConfirmed = { confirmedDestination ->
-                            onDestinationSelected(confirmedDestination)
-                        },
-                        onRetryInput = { listenForDestination() }
-                    )
+            OutlinedButton(
+                onClick = { showMoreDestinations = !showMoreDestinations },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text(if (showMoreDestinations) "收起更多目的地" else "更多目的地")
+            }
+            if (showMoreDestinations) {
+                DestinationButton(Icons.Default.TravelExplore, "机场", "适合提前生成服务提醒") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
+                }
+                DestinationButton(Icons.Default.Map, "社区服务站", "适合附近路线和志愿者协助") { selectedDestination ->
+                    pendingDestination = selectedDestination
+                    destinationInput = selectedDestination
+                    speechMessage = "已选择$selectedDestination，请说确认出发，或说重新输入进行纠错。"
+                    XunfeiSpeechManager.speak("已为您选择$selectedDestination。说确认出发继续，或说重新输入") {
+                        listenForDestinationConfirmation(
+                            currentDestination = selectedDestination,
+                            onStateChanged = { speechMessage = it },
+                            onDestinationUpdated = {
+                                pendingDestination = it
+                                destinationInput = it
+                            },
+                            onConfirmed = { confirmedDestination ->
+                                handleDestinationConfirmed(confirmedDestination)
+                            },
+                            onRetryInput = { listenForDestination() }
+                        )
+                    }
                 }
             }
         }
@@ -518,18 +556,25 @@ fun PreTripScanScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("目的地：$destination", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("请将手机朝向正前方，明心之眼将帮你查看出口、楼梯、车辆、人群和障碍物。")
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(
+                        text = "目的地：$destination",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "请将手机朝向正前方，系统将为您识别障碍物。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 
@@ -537,7 +582,7 @@ fun PreTripScanScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1.2f),
                     shape = RoundedCornerShape(20.dp)
                 ) {
                     androidx.compose.ui.viewinterop.AndroidView(
@@ -548,15 +593,20 @@ fun PreTripScanScreen(
                     )
                 }
             } else {
-                Text(
-                    text = "系统将自动开启 CameraX 实时检测，先完成障碍识别和风险预警，再继续导航。",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = cameraStatusText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "系统将自动开启 CameraX 实时检测，先完成障碍识别和风险预警，再继续导航。",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = cameraStatusText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             Button(
@@ -573,9 +623,9 @@ fun PreTripScanScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
+                    .height(64.dp)
                     .semantics { contentDescription = "开始出行前环境检查" },
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(18.dp)
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(
@@ -589,8 +639,8 @@ fun PreTripScanScreen(
                     onScanFinished(destination)
                 },
                 enabled = isScanCompleted,
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                shape = RoundedCornerShape(18.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Text(if (isScanCompleted) "检查完成，继续出行" else "检测完成后自动继续")
             }
@@ -611,10 +661,12 @@ fun TravelPlanScreen(
 ) {
     val context = LocalContext.current
     val sdkValidation = remember(context) { TravelSdkValidator.validate(context) }
+    val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
     val needStaffAssist = destination == "高铁站" || destination == "机场" || destination == "医院"
     val planText = remember(destination) { TravelStrategyHelper.generatePlan(destination) }
     val hnustCenterPoint = remember { LatLng(27.904, 112.918) }
     var hasAutoStartedNavigation by rememberSaveable { mutableStateOf(false) }
+    var showStartNavigationDialog by rememberSaveable { mutableStateOf(false) }
     var mapPreviewStatus by rememberSaveable { mutableStateOf("正在加载高德地图预览。") }
     val resolvedMapPreviewStatus = if (sdkValidation.canUseAmapNavigation) {
         mapPreviewStatus
@@ -622,21 +674,72 @@ fun TravelPlanScreen(
         "高德地图 Key 未生效，当前无法渲染地图预览。"
     }
 
+    fun requestStartNavigationConfirmation() {
+        if (!sdkValidation.canUseAmapNavigation) return
+        if (!XunfeiSpeechManager.hasRecordAudioPermission(context)) {
+            showStartNavigationDialog = true
+            XunfeiSpeechManager.speak("需要麦克风权限才能语音确认是否开始导航")
+            return
+        }
+        if (!talkBackEnabled) {
+            showStartNavigationDialog = true
+        }
+        XunfeiSpeechManager.speak("是否开始导航？说“是”开始导航，说“否”稍后再说") {
+            listenForNavigationStartConfirmation(
+                onConfirm = { onStartNavigation(destination) },
+                onSkip = { XunfeiSpeechManager.speak("好的，已为您保留出行方案。需要导航时说开始导航") },
+                onRetry = { requestStartNavigationConfirmation() }
+            )
+        }
+    }
+
     LaunchedEffect(destination) {
         XunfeiSpeechManager.initXunfei(context)
         if (!hasAutoStartedNavigation) {
             hasAutoStartedNavigation = true
             val voicePlanText = if (sdkValidation.canUseAmapNavigation) {
-                "$planText。环境检测已完成，即将启动高德无障碍导航。"
+                "$planText。环境检测已完成。"
             } else {
                 "$planText。当前未完成高德地图 Key 配置，暂时无法启动原生导航。"
             }
             XunfeiSpeechManager.speak(voicePlanText) {
                 if (sdkValidation.canUseAmapNavigation) {
-                    onStartNavigation(destination)
+                    requestStartNavigationConfirmation()
                 }
             }
         }
+    }
+
+    if (showStartNavigationDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showStartNavigationDialog = false },
+            title = { Text("开始导航") },
+            text = { Text("是否现在开始导航？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showStartNavigationDialog = false
+                        if (sdkValidation.canUseAmapNavigation) {
+                            onStartNavigation(destination)
+                        }
+                    },
+                    enabled = sdkValidation.canUseAmapNavigation && !talkBackEnabled
+                ) {
+                    Text("开始导航")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showStartNavigationDialog = false
+                        XunfeiSpeechManager.speak("好的，已为您保留出行方案。需要导航时说开始导航")
+                    }
+                ) {
+                    Text("稍后再说")
+                }
+            },
+            shape = RoundedCornerShape(24.dp)
+        )
     }
 
     Scaffold(
@@ -676,8 +779,8 @@ fun TravelPlanScreen(
                 PlanCard("提前服务", "$destination 人流和流程较复杂，建议提前联系工作人员、家属或志愿者。")
             }
             Button(
-                onClick = { onStartNavigation(destination) },
-                enabled = sdkValidation.canUseAmapNavigation,
+                onClick = { requestStartNavigationConfirmation() },
+                enabled = sdkValidation.canUseAmapNavigation && !talkBackEnabled,
                 modifier = Modifier.fillMaxWidth().height(72.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {
@@ -685,6 +788,16 @@ fun TravelPlanScreen(
                     if (sdkValidation.canUseAmapNavigation) "开始出行陪伴" else "高德导航配置未完成",
                     style = MaterialTheme.typography.titleLarge
                 )
+            }
+            if (sdkValidation.canUseAmapNavigation && talkBackEnabled) {
+                PlanCard("导航提示", "已开启语音确认：系统会询问是否开始导航，请直接回答“是”或“否”。")
+                OutlinedButton(
+                    onClick = { requestStartNavigationConfirmation() },
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text("再次语音确认导航")
+                }
             }
             OutlinedButton(
                 onClick = onNavigateBack,
@@ -700,7 +813,9 @@ fun TravelPlanScreen(
 @Composable
 private fun PlanCard(title: String, content: String) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { },
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
@@ -947,6 +1062,48 @@ private fun listenForDestinationConfirmation(
                     onRetryInput = onRetryInput
                 )
             }
+        }
+    }
+}
+
+private fun listenForPreTripCheckConfirmation(
+    onConfirm: () -> Unit,
+    onSkip: () -> Unit,
+    onRetry: () -> Unit
+) {
+    XunfeiSpeechManager.listenOnce { result ->
+        val command = result.trim()
+        if (command.contains("是") || command.contains("好") || command.contains("要") || command.contains("开始") || command.contains("检查")) {
+            onConfirm()
+        } else if (command.contains("否") || command.contains("不") || command.contains("直接") || command.contains("跳过") || command.contains("不用")) {
+            onSkip()
+        } else if (command.isBlank()) {
+            XunfeiSpeechManager.speak("没听清您的指令。说“是”开始环境检查，说“否”直接出发") {
+                listenForPreTripCheckConfirmation(onConfirm, onSkip, onRetry)
+            }
+        } else {
+            onRetry()
+        }
+    }
+}
+
+private fun listenForNavigationStartConfirmation(
+    onConfirm: () -> Unit,
+    onSkip: () -> Unit,
+    onRetry: () -> Unit
+) {
+    XunfeiSpeechManager.listenOnce { result ->
+        val command = result.trim()
+        if (command.contains("是") || command.contains("好") || command.contains("开始") || command.contains("导航") || command.contains("出发")) {
+            onConfirm()
+        } else if (command.contains("否") || command.contains("不") || command.contains("取消") || command.contains("稍后") || command.contains("等等")) {
+            onSkip()
+        } else if (command.isBlank()) {
+            XunfeiSpeechManager.speak("没听清您的指令。说“是”开始导航，说“否”稍后再说") {
+                listenForNavigationStartConfirmation(onConfirm, onSkip, onRetry)
+            }
+        } else {
+            onRetry()
         }
     }
 }
