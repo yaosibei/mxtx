@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -457,6 +458,7 @@ fun PreTripScanScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { androidx.camera.view.PreviewView(context) }
+    val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
     var cameraStatusText by rememberSaveable { mutableStateOf("正在准备环境检测。") }
     var isCameraStarted by rememberSaveable { mutableStateOf(false) }
     var isScanCompleted by rememberSaveable { mutableStateOf(false) }
@@ -587,9 +589,16 @@ fun PreTripScanScreen(
                 ) {
                     androidx.compose.ui.viewinterop.AndroidView(
                         factory = { previewView },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(20.dp))
+                        modifier = if (talkBackEnabled) {
+                            Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(20.dp))
+                                .clearAndSetSemantics { }
+                        } else {
+                            Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(20.dp))
+                        }
                     )
                 }
             } else {
@@ -667,6 +676,7 @@ fun TravelPlanScreen(
     val hnustCenterPoint = remember { LatLng(27.904, 112.918) }
     var hasAutoStartedNavigation by rememberSaveable { mutableStateOf(false) }
     var showStartNavigationDialog by rememberSaveable { mutableStateOf(false) }
+    var showMapPreview by rememberSaveable { mutableStateOf(false) }
     var mapPreviewStatus by rememberSaveable { mutableStateOf("正在加载高德地图预览。") }
     val resolvedMapPreviewStatus = if (sdkValidation.canUseAmapNavigation) {
         mapPreviewStatus
@@ -763,20 +773,46 @@ fun TravelPlanScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             PlanCard("目的地", destination)
-            if (sdkValidation.canUseAmapNavigation) {
-                AmapPreviewMap(
-                    centerPoint = hnustCenterPoint,
-                    title = "湖南科技大学",
-                    subtitle = "地图预览已加载，可用于确认高德地图渲染正常。",
-                    onMapStatusChanged = { mapPreviewStatus = it }
-                )
-            }
-            PlanCard("地图状态", resolvedMapPreviewStatus)
-            PlanCard("个性化建议", planText)
-            PlanCard("出行前建议", "先使用明心之眼确认前方环境，离开室内后再开始完整路线导航。")
-            PlanCard("提醒方式", "随境 SenseFlow 会根据室内/室外、安静/嘈杂自动切换语音和震动策略。")
-            if (needStaffAssist) {
-                PlanCard("提前服务", "$destination 人流和流程较复杂，建议提前联系工作人员、家属或志愿者。")
+            if (talkBackEnabled) {
+                PlanCard("出行方案", planText)
+                if (needStaffAssist) {
+                    PlanCard("提前服务", "$destination 人流和流程较复杂，建议提前联系工作人员、家属或志愿者。")
+                }
+                PlanCard("下一步", "系统将语音询问是否开始导航，请回答“是”或“否”。")
+                if (sdkValidation.canUseAmapNavigation) {
+                    OutlinedButton(
+                        onClick = { showMapPreview = !showMapPreview },
+                        modifier = Modifier.fillMaxWidth().height(60.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Text(if (showMapPreview) "收起地图预览" else "展开地图预览")
+                    }
+                }
+                if (sdkValidation.canUseAmapNavigation && showMapPreview) {
+                    AmapPreviewMap(
+                        centerPoint = hnustCenterPoint,
+                        title = "湖南科技大学",
+                        subtitle = "地图预览已加载，可用于确认高德地图渲染正常。",
+                        onMapStatusChanged = { mapPreviewStatus = it }
+                    )
+                    PlanCard("地图状态", resolvedMapPreviewStatus)
+                }
+            } else {
+                if (sdkValidation.canUseAmapNavigation) {
+                    AmapPreviewMap(
+                        centerPoint = hnustCenterPoint,
+                        title = "湖南科技大学",
+                        subtitle = "地图预览已加载，可用于确认高德地图渲染正常。",
+                        onMapStatusChanged = { mapPreviewStatus = it }
+                    )
+                }
+                PlanCard("地图状态", resolvedMapPreviewStatus)
+                PlanCard("个性化建议", planText)
+                PlanCard("出行前建议", "先使用明心之眼确认前方环境，离开室内后再开始完整路线导航。")
+                PlanCard("提醒方式", "随境 SenseFlow 会根据室内/室外、安静/嘈杂自动切换语音和震动策略。")
+                if (needStaffAssist) {
+                    PlanCard("提前服务", "$destination 人流和流程较复杂，建议提前联系工作人员、家属或志愿者。")
+                }
             }
             Button(
                 onClick = { requestStartNavigationConfirmation() },
@@ -843,8 +879,11 @@ fun TravelNavigationScreen(
     val sdkValidation = remember(context) { TravelSdkValidator.validate(context) }
     val hnustCenterPoint = remember { LatLng(27.904, 112.918) }
     val launchState by AmapNavigationManager.launchState.collectAsState()
+    val talkBackEnabled = remember(context) { context.isTouchExplorationEnabled() }
     var hasRequestedNavigation by rememberSaveable { mutableStateOf(false) }
     var mapPreviewStatus by rememberSaveable { mutableStateOf("正在加载高德地图预览。") }
+    var showMoreActions by rememberSaveable { mutableStateOf(false) }
+    var showMapPreview by rememberSaveable { mutableStateOf(false) }
     val elapsedSeconds by produceState(0L) {
         while (true) {
             kotlinx.coroutines.delay(1000)
@@ -899,27 +938,12 @@ fun TravelNavigationScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             PlanCard("正在前往", destination)
-            if (sdkValidation.canUseAmapNavigation) {
-                AmapPreviewMap(
-                    centerPoint = hnustCenterPoint,
-                    title = "湖南科技大学",
-                    subtitle = "导航启动前的高德地图预览。",
-                    onMapStatusChanged = { mapPreviewStatus = it }
-                )
-            }
-            PlanCard(
-                "地图状态",
-                if (sdkValidation.canUseAmapNavigation) mapPreviewStatus
-                else "高德地图 Key 未生效，无法显示导航地图。"
-            )
             PlanCard(
                 "导航状态",
                 if (sdkValidation.canUseAmapNavigation) launchState.message
-                else "未配置有效的高德地图 Key，无法启动原生无障碍导航。请先在 local.properties 中补充 amap.api.key，并在高德控制台完成包名与 SHA1 绑定。"
+                else "未配置有效的高德地图 Key，无法启动原生无障碍导航。"
             )
             PlanCard("出行时长", String.format("%02d:%02d", elapsedMin, elapsedSec))
-            PlanCard("路线提醒", "保持手机朝前，注意前方障碍物和路口。地图 SDK 接入后将提供精确转弯和偏航提醒。")
-            PlanCard("避障提醒", "出行中可按需调用明心之眼短时扫描前方环境。")
             Button(
                 onClick = onQuickAsk,
                 modifier = Modifier.fillMaxWidth().height(72.dp),
@@ -928,17 +952,46 @@ fun TravelNavigationScreen(
                 Icon(Icons.Default.RecordVoiceOver, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text("看前方 / 问一下", style = MaterialTheme.typography.titleLarge)
             }
-            OutlinedButton(
-                onClick = {
-                    if (sdkValidation.canUseAmapNavigation) {
-                        AmapNavigationManager.resetLaunchState()
-                        TravelAmapNaviLauncher.launch(context, destination)
+            if (talkBackEnabled) {
+                OutlinedButton(
+                    onClick = { showMoreActions = !showMoreActions },
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text(if (showMoreActions) "收起更多操作" else "更多操作")
+                }
+            }
+            if (!talkBackEnabled || showMoreActions) {
+                if (sdkValidation.canUseAmapNavigation) {
+                    OutlinedButton(
+                        onClick = { showMapPreview = !showMapPreview },
+                        modifier = Modifier.fillMaxWidth().height(60.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Text(if (showMapPreview) "收起地图预览" else "展开地图预览")
                     }
-                },
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text("重新唤起高德导航")
+                }
+                if (sdkValidation.canUseAmapNavigation && showMapPreview) {
+                    AmapPreviewMap(
+                        centerPoint = hnustCenterPoint,
+                        title = "湖南科技大学",
+                        subtitle = "导航启动前的高德地图预览。",
+                        onMapStatusChanged = { mapPreviewStatus = it }
+                    )
+                    PlanCard("地图状态", mapPreviewStatus)
+                }
+                OutlinedButton(
+                    onClick = {
+                        if (sdkValidation.canUseAmapNavigation) {
+                            AmapNavigationManager.resetLaunchState()
+                            TravelAmapNaviLauncher.launch(context, destination)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text("重新唤起高德导航")
+                }
             }
             OutlinedButton(
                 onClick = onNavigateBack,
