@@ -2,8 +2,6 @@ package com.mindeye.app.feature.senseflow.service
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -13,14 +11,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.mindeye.app.core.model.SceneAnalysisResponse
 import com.mindeye.app.core.database.AppDatabase
 import com.mindeye.app.core.database.entity.SceneRecordEntity
 import com.mindeye.app.feature.senseflow.data.SceneRepository
+import com.mindeye.app.feature.senseflow.domain.*
 import com.mindeye.app.core.sensor.AudioLevelListener
 import com.mindeye.app.core.sensor.AppSensorManager
 import com.mindeye.app.core.feedback.VibrationManager
 import com.mindeye.app.core.location.LocationService
+import com.mindeye.app.feature.mindeye.speech.XunfeiSpeechManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +30,8 @@ import java.util.concurrent.Executors
 
 /**
  * 随境 SenseFlow 场景分析服务。
- * 修复了 LifecycleOwner 崩溃、空白 bitmap、缺失定位等问题。
+ * 启动后在后台持续运行，通过传感器+音频+摄像头判断场景，
+ * 根据场景类型自动选择语音/震动策略。
  */
 class SceneAnalysisService(
     private val context: Context,
@@ -54,11 +54,14 @@ class SceneAnalysisService(
     private val sceneRepository = SceneRepository(AppDatabase.getDatabase(context).sceneRecordDao())
 
     private var isRunning = false
-    private var currentSceneType = "indoor_quiet"
+    private var currentState: SenseFlowState = SenseFlowState()
     private val handler = Handler(Looper.getMainLooper())
     private val analysisInterval = 3000L
 
     private var capturedBitmap: Bitmap? = null
+
+    /** 场景分析结果回调，供 UI 层监听 */
+    var onSceneChanged: ((SenseFlowState) -> Unit)? = null
 
     fun start() {
         if (isRunning) return
@@ -67,6 +70,7 @@ class SceneAnalysisService(
         audioLevelListener.startListening()
         initializeCamera()
         startAnalysisLoop()
+        XunfeiSpeechManager.speak("场景分析已启动")
         Log.d(TAG, "Scene analysis service started")
     }
 
@@ -79,6 +83,7 @@ class SceneAnalysisService(
         audioLevelListener.stopListening()
         capturedBitmap?.recycle()
         capturedBitmap = null
+        XunfeiSpeechManager.speak("场景分析已停止")
         Log.d(TAG, "Scene analysis service stopped")
     }
 
@@ -86,6 +91,7 @@ class SceneAnalysisService(
         stop()
         audioLevelListener.release()
         sensorManager.release()
+        vibrationManager.cancel()
     }
 
     private fun initializeCamera() {
@@ -122,7 +128,6 @@ class SceneAnalysisService(
                 Log.d(TAG, "Camera initialized successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing camera: ${e.message}")
-                // Fallback: use ImageCapture only
                 try {
                     cameraProvider = cameraProviderFuture.get()
                     val cameraSelector = CameraSelector.Builder()
@@ -161,9 +166,32 @@ class SceneAnalysisService(
                 val motionState = sensorManager.detectMotionState()
                 val location = locationService?.getLastLocation()
 
-                val response = analyzeSceneLocally(audioLevel, isMoving, motionState)
-                currentSceneType = response.sceneType
-                handleSceneAnalysisResponse(response)
+                // 本地快速判断
+                val localState = analyzeSceneLocally(audioLevel, isMoving, motionState)
+
+                // 有图片数据时尝试云端分析
+                val response = if (imageData.isNotEmpty()) {
+                    try {
+                        val cloudState = analyzeSceneWithCloud(imageData, audioLevel, location)
+                        cloudState
+                    } catch (e: Exception) {
+                        Log.w(TAG, "云端分析失败，使用本地结果: ${e.message}")
+                        localState
+                    }
+                } else {
+                    localState
+                }
+
+                // 场景变化检测
+                if (response.sceneType != currentState.sceneType) {
+                    onSceneAnnounce(response.sceneType)
+                }
+
+                currentState = response
+                onSceneChanged?.invoke(response)
+
+                // 执行反馈策略
+                applyFeedbackStrategy(response)
 
                 saveSceneRecord(response, audioLevel.toDouble(), location)
             } catch (e: Exception) {
@@ -179,7 +207,6 @@ class SceneAnalysisService(
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
             return Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
         }
-        // Fallback: if camera not ready yet, return minimal data
         return ""
     }
 
@@ -187,78 +214,158 @@ class SceneAnalysisService(
         audioLevel: Float,
         isMoving: Boolean,
         motionState: String
-    ): SceneAnalysisResponse {
+    ): SenseFlowState {
         val sceneType = when {
-            audioLevel < 40f && !isMoving -> "indoor_quiet"
-            audioLevel > 65f && !isMoving -> "indoor_noisy"
-            audioLevel < 50f && isMoving -> "outdoor_quiet"
-            audioLevel > 70f && isMoving -> "outdoor_noisy"
-            audioLevel in 50f..70f && motionState == "walking" -> "social"
-            audioLevel > 60f && motionState == "vehicle" -> "traffic"
-            else -> "indoor_quiet"
+            audioLevel < 40f && !isMoving -> SenseSceneType.INDOOR_QUIET
+            audioLevel > 65f && !isMoving -> SenseSceneType.INDOOR_NOISY
+            audioLevel < 50f && isMoving -> SenseSceneType.OUTDOOR_QUIET
+            audioLevel > 70f && isMoving -> SenseSceneType.OUTDOOR_NOISY
+            audioLevel in 50f..70f && motionState == "walking" -> SenseSceneType.SOCIAL
+            audioLevel > 60f && motionState == "vehicle" -> SenseSceneType.TRAFFIC
+            else -> SenseSceneType.INDOOR_QUIET
         }
 
-        val safetyLevel = when {
-            sceneType == "traffic" -> "caution"
-            audioLevel > 80f -> "danger"
-            sceneType == "outdoor_noisy" -> "caution"
-            else -> "safe"
+        val noiseLevel = when {
+            audioLevel < 40f -> NoiseLevel.QUIET
+            audioLevel < 65f -> NoiseLevel.NORMAL
+            else -> NoiseLevel.NOISY
         }
 
-        return SceneAnalysisResponse(
+        val motion = when (motionState) {
+            "still" -> MotionState.STILL
+            "walking" -> MotionState.WALKING
+            "running" -> MotionState.RUNNING
+            "vehicle" -> MotionState.VEHICLE
+            else -> MotionState.UNKNOWN
+        }
+
+        val strategy = decideFeedbackStrategy(sceneType, noiseLevel)
+
+        return SenseFlowState(
             sceneType = sceneType,
-            confidence = 0.8f,
-            recommendations = getRecommendationsForScene(sceneType),
-            safetyLevel = safetyLevel,
+            noiseLevel = noiseLevel,
+            motionState = motion,
+            feedbackStrategy = strategy,
             timestamp = System.currentTimeMillis()
         )
     }
 
-    private fun getRecommendationsForScene(sceneType: String): List<String> = when (sceneType) {
-        "indoor_quiet" -> listOf("环境安静，适合语音交互")
-        "indoor_noisy" -> listOf("环境嘈杂，建议使用震动反馈")
-        "outdoor_quiet" -> listOf("户外环境安静，注意周围安全")
-        "outdoor_noisy" -> listOf("户外环境嘈杂，建议使用震动导航")
-        "social" -> listOf("检测到社交场景，注意周围人流")
-        "traffic" -> listOf("检测到交通场景，注意交通安全")
-        else -> listOf("请小心行走")
+    /**
+     * 云端场景分析（需要 MultimodalApiService 实现）。
+     * 由于云端服务可能未部署，此处保留接口，默认回退本地分析。
+     */
+    private fun analyzeSceneWithCloud(
+        imageData: String,
+        audioLevel: Float,
+        location: android.location.Location?
+    ): SenseFlowState {
+        // TODO: 接入 MultimodalApiService.analyzeScene()
+        // 云端服务未就绪时，使用本地分析结果
+        return analyzeSceneLocally(
+            audioLevel = audioLevel,
+            isMoving = sensorManager.isMoving(),
+            motionState = sensorManager.detectMotionState()
+        )
     }
 
-    private fun handleSceneAnalysisResponse(response: SceneAnalysisResponse) {
-        when (response.sceneType) {
-            "indoor_noisy", "outdoor_noisy" -> vibrationManager.vibrateStrong()
-            "traffic" -> vibrationManager.vibrateForIntersection()
+    /**
+     * 根据场景类型决定反馈策略。
+     */
+    private fun decideFeedbackStrategy(
+        sceneType: SenseSceneType,
+        noiseLevel: NoiseLevel
+    ): FeedbackStrategy = when (sceneType) {
+        SenseSceneType.INDOOR_QUIET -> FeedbackStrategy.VOICE_MAIN
+        SenseSceneType.INDOOR_NOISY -> FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION
+        SenseSceneType.OUTDOOR_QUIET -> FeedbackStrategy.VOICE_MAIN
+        SenseSceneType.OUTDOOR_NOISY -> FeedbackStrategy.VIBRATION_MAIN
+        SenseSceneType.SOCIAL -> FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION
+        SenseSceneType.TRAFFIC -> FeedbackStrategy.EMERGENCY_INTERRUPT
+        SenseSceneType.UNKNOWN -> FeedbackStrategy.VOICE_MAIN
+    }
+
+    /**
+     * 执行当前反馈策略。
+     */
+    private fun applyFeedbackStrategy(state: SenseFlowState) {
+        when (state.feedbackStrategy) {
+            FeedbackStrategy.VOICE_MAIN -> {
+                // 语音为主，仅轻微震动确认
+            }
+            FeedbackStrategy.VIBRATION_MAIN -> {
+                vibrationManager.vibrateStrong()
+            }
+            FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION -> {
+                vibrationManager.vibrateNormal()
+            }
+            FeedbackStrategy.SILENT_SCREEN -> {
+                // 静默模式
+            }
+            FeedbackStrategy.EMERGENCY_INTERRUPT -> {
+                vibrationManager.vibrateEmergency()
+            }
         }
-        if (response.safetyLevel == "danger") {
-            vibrationManager.vibrateEmergency()
+
+        // 根据场景类型播报语音提示
+        val announcement = getSceneAnnouncement(state.sceneType)
+        if (announcement.isNotEmpty()) {
+            XunfeiSpeechManager.speak(announcement)
         }
+    }
+
+    /**
+     * 场景变化时播报。
+     */
+    private fun onSceneAnnounce(sceneType: SenseSceneType) {
+        val text = when (sceneType) {
+            SenseSceneType.INDOOR_QUIET -> "已进入安静室内环境"
+            SenseSceneType.INDOOR_NOISY -> "室内环境较嘈杂，建议使用震动反馈"
+            SenseSceneType.OUTDOOR_QUIET -> "已进入安静户外环境"
+            SenseSceneType.OUTDOOR_NOISY -> "户外环境较嘈杂，建议使用震动导航"
+            SenseSceneType.SOCIAL -> "检测到周围有人群活动"
+            SenseSceneType.TRAFFIC -> "检测到交通环境，请注意交通安全"
+            SenseSceneType.UNKNOWN -> ""
+        }
+        if (text.isNotEmpty()) {
+            XunfeiSpeechManager.speak(text)
+        }
+    }
+
+    private fun getSceneAnnouncement(sceneType: SenseSceneType): String = when (sceneType) {
+        SenseSceneType.TRAFFIC -> "注意交通安全"
+        SenseSceneType.SOCIAL -> "注意周围人流"
+        SenseSceneType.OUTDOOR_NOISY -> "建议使用震动导航"
+        SenseSceneType.INDOOR_NOISY -> "建议使用震动反馈"
+        else -> ""
     }
 
     private suspend fun saveSceneRecord(
-        response: SceneAnalysisResponse,
+        state: SenseFlowState,
         audioLevel: Double,
         location: android.location.Location?
     ) {
-        val vibrationPattern = when (response.safetyLevel) {
-            "danger" -> 2
-            "caution" -> 1
+        val vibrationPattern = when (state.feedbackStrategy) {
+            FeedbackStrategy.EMERGENCY_INTERRUPT -> 2
+            FeedbackStrategy.VIBRATION_MAIN, FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION -> 1
             else -> 0
         }
         val record = SceneRecordEntity(
-            sceneType = response.sceneType,
-            sceneSubtype = response.sceneType,
-            description = response.recommendations.joinToString(","),
+            sceneType = state.sceneType.name.lowercase(),
+            sceneSubtype = state.sceneType.name.lowercase(),
+            description = "${state.noiseLevel.name}, ${state.motionState.name}",
             latitude = location?.latitude ?: 0.0,
             longitude = location?.longitude ?: 0.0,
-            timestamp = response.timestamp,
+            timestamp = state.timestamp,
             audioLevel = audioLevel,
             vibrationPattern = vibrationPattern,
-            voiceEnabled = true
+            voiceEnabled = state.feedbackStrategy != FeedbackStrategy.SILENT_SCREEN
         )
         sceneRepository.saveRecord(record)
     }
 
-    fun getCurrentSceneType(): String = currentSceneType
+    fun getCurrentSceneType(): SenseSceneType = currentState.sceneType
+
+    fun getCurrentState(): SenseFlowState = currentState
 
     fun triggerAnalysis() { analyzeScene() }
 }

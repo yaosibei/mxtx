@@ -77,7 +77,7 @@ android {
             jniLibs.srcDirs("src/main/jniLibs")
         }
     }
-    
+
     applicationVariants.all {
         if (buildType.name == "debug") {
             outputs.all {

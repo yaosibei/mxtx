@@ -60,6 +60,9 @@ import com.mindeye.app.feature.mindeye.navigation.TravelAmapNaviLauncher
 import com.mindeye.app.feature.mindeye.speech.XunfeiSpeechManager
 import com.mindeye.app.feature.mindeye.travel.data.TravelSdkValidator
 import com.mindeye.app.feature.mindeye.vision.VisionAnalysisHelper
+import com.mindeye.app.feature.senseflow.domain.SenseSceneType
+import com.mindeye.app.feature.senseflow.service.SceneAnalysisService
+import com.mindeye.app.core.location.LocationService
 
 /**
  * 明心之眼 - 目的地询问页面。
@@ -427,6 +430,10 @@ fun PreTripScanScreen(
     var remainingSeconds by rememberSaveable { mutableStateOf(PRE_TRIP_SCAN_DURATION_SECONDS) }
     var cameraStartToken by rememberSaveable { mutableStateOf(0) }
 
+    // 场景分析服务，与摄像头检测并行运行
+    val sceneService = remember { SceneAnalysisService(context, lifecycleOwner, LocationService(context)) }
+    var currentSceneName by remember { mutableStateOf("等待分析...") }
+
     fun startPreTripScan() {
         XunfeiSpeechManager.initXunfei(context)
         cameraStatusText = "环境检测已启动，请将手机朝向正前方，系统会先完成障碍识别再进入导航。"
@@ -435,6 +442,8 @@ fun PreTripScanScreen(
         hasSubmittedResult = false
         remainingSeconds = PRE_TRIP_SCAN_DURATION_SECONDS
         cameraStartToken += 1
+        // 启动场景分析服务
+        sceneService.start()
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -464,17 +473,18 @@ fun PreTripScanScreen(
         XunfeiSpeechManager.initXunfei(context)
         if (!hasAutoRequestedCamera) {
             hasAutoRequestedCamera = true
-            XunfeiSpeechManager.speak("目的地已确认，现在开始环境实时检测，请将手机朝向前方") {
-                if (ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.CAMERA
-                    ) == PackageManager.PERMISSION_GRANTED
-                ) {
-                    startPreTripScan()
-                } else {
-                    cameraStatusText = "需要摄像头权限才能继续环境检测。"
-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }
+            // 异步播报语音（speak 内部是异步的），不阻塞后续流程
+            XunfeiSpeechManager.speak("目的地已确认，现在开始环境实时检测，请将手机朝向前方")
+            // 立即检查权限并启动检测，不依赖 TTS 回调
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                startPreTripScan()
+            } else {
+                cameraStatusText = "需要摄像头权限才能继续环境检测。"
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
             }
         }
     }
@@ -489,6 +499,7 @@ fun PreTripScanScreen(
                 hasSubmittedResult = true
                 isScanCompleted = true
                 VisionAnalysisHelper.stopCamera()
+                sceneService.stop()
                 cameraStatusText = "环境检测完成，系统已完成障碍物识别与风险预警，正在生成出行方案。"
                 XunfeiSpeechManager.speak("环境检测完成，如发现风险系统已在检测过程中播报。现在为您生成出行方案")
                 onScanFinished(destination)
@@ -496,9 +507,25 @@ fun PreTripScanScreen(
         }
     }
 
+    // 监听场景分析结果，实时播报场景变化
+    LaunchedEffect(sceneService) {
+        snapshotFlow { sceneService.getCurrentState() }.collect { state ->
+            currentSceneName = when (state.sceneType) {
+                SenseSceneType.INDOOR_QUIET -> "安静室内"
+                SenseSceneType.INDOOR_NOISY -> "嘈杂室内"
+                SenseSceneType.OUTDOOR_QUIET -> "安静户外"
+                SenseSceneType.OUTDOOR_NOISY -> "嘈杂户外"
+                SenseSceneType.SOCIAL -> "社交场景"
+                SenseSceneType.TRAFFIC -> "交通环境"
+                SenseSceneType.UNKNOWN -> "未知场景"
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             VisionAnalysisHelper.release()
+            sceneService.release()
         }
     }
 
@@ -530,6 +557,10 @@ fun PreTripScanScreen(
                     Text("目的地：$destination", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("请将手机朝向正前方，明心之眼将帮你查看出口、楼梯、车辆、人群和障碍物。")
+                    if (isCameraStarted && currentSceneName != "等待分析...") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("当前环境: $currentSceneName", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
 
@@ -600,7 +631,8 @@ fun PreTripScanScreen(
 
 /**
  * 明心之眼 - 个性化出行方案页面。
- * 真实版本由目的地 + 明心之眼扫描结果 + SenseFlow 状态 + 地图路线共同生成。
+ * 由目的地 + 明心之眼扫描结果 + SenseFlow 状态 + 地图路线共同生成。
+ * 在此页面启动 SceneAnalysisService，为后续出行中实时分析做准备。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -610,6 +642,7 @@ fun TravelPlanScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val sdkValidation = remember(context) { TravelSdkValidator.validate(context) }
     val needStaffAssist = destination == "高铁站" || destination == "机场" || destination == "医院"
     val planText = remember(destination) { TravelStrategyHelper.generatePlan(destination) }
@@ -622,12 +655,49 @@ fun TravelPlanScreen(
         "高德地图 Key 未生效，当前无法渲染地图预览。"
     }
 
+    // 在此页面初始化场景分析服务，为出行中实时分析做准备
+    val sceneService = remember { SceneAnalysisService(context, lifecycleOwner, LocationService(context)) }
+    var currentSceneName by remember { mutableStateOf("等待分析...") }
+    var currentFeedbackStrategy by remember { mutableStateOf("语音为主") }
+
+    LaunchedEffect(Unit) {
+        sceneService.start()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // 出行方案页面退出时不立即停止服务，由导航页面接管
+        }
+    }
+
+    // 监听场景状态用于展示
+    LaunchedEffect(sceneService) {
+        snapshotFlow { sceneService.getCurrentState() }.collect { state ->
+            currentSceneName = when (state.sceneType) {
+                SenseSceneType.INDOOR_QUIET -> "安静室内"
+                SenseSceneType.INDOOR_NOISY -> "嘈杂室内"
+                SenseSceneType.OUTDOOR_QUIET -> "安静户外"
+                SenseSceneType.OUTDOOR_NOISY -> "嘈杂户外"
+                SenseSceneType.SOCIAL -> "社交场景"
+                SenseSceneType.TRAFFIC -> "交通环境"
+                SenseSceneType.UNKNOWN -> "未知场景"
+            }
+            currentFeedbackStrategy = when (state.feedbackStrategy) {
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.VOICE_MAIN -> "语音为主"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.VIBRATION_MAIN -> "震动为主"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION -> "短语音+震动"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.SILENT_SCREEN -> "静默模式"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.EMERGENCY_INTERRUPT -> "紧急中断"
+            }
+        }
+    }
+
     LaunchedEffect(destination) {
         XunfeiSpeechManager.initXunfei(context)
         if (!hasAutoStartedNavigation) {
             hasAutoStartedNavigation = true
             val voicePlanText = if (sdkValidation.canUseAmapNavigation) {
-                "$planText。环境检测已完成，即将启动高德无障碍导航。"
+                "$planText。随境 SenseFlow 已在后台运行，即将启动高德无障碍导航。"
             } else {
                 "$planText。当前未完成高德地图 Key 配置，暂时无法启动原生导航。"
             }
@@ -671,6 +741,21 @@ fun TravelPlanScreen(
             PlanCard("地图状态", resolvedMapPreviewStatus)
             PlanCard("个性化建议", planText)
             PlanCard("出行前建议", "先使用明心之眼确认前方环境，离开室内后再开始完整路线导航。")
+
+            // SenseFlow 场景分析实时状态展示
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("随境 SenseFlow 状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("当前场景: $currentSceneName", style = MaterialTheme.typography.bodyLarge)
+                    Text("反馈策略: $currentFeedbackStrategy", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
             PlanCard("提醒方式", "随境 SenseFlow 会根据室内/室外、安静/嘈杂自动切换语音和震动策略。")
             if (needStaffAssist) {
                 PlanCard("提前服务", "$destination 人流和流程较复杂，建议提前联系工作人员、家属或志愿者。")
@@ -714,8 +799,7 @@ private fun PlanCard(title: String, content: String) {
 
 /**
  * 明心之眼 - 出行中页面。
- * 成员 4 后续在这里接地图 SDK、路线点、转弯提醒、偏航提醒。
- * 成员 2 后续在“看前方”按钮里接短时摄像头避障。
+ * 接入 SceneAnalysisService 实时分析环境场景，自动切换语音/震动策略。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -725,19 +809,17 @@ fun TravelNavigationScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val sdkValidation = remember(context) { TravelSdkValidator.validate(context) }
     val hnustCenterPoint = remember { LatLng(27.904, 112.918) }
     val launchState by AmapNavigationManager.launchState.collectAsState()
     var hasRequestedNavigation by rememberSaveable { mutableStateOf(false) }
     var mapPreviewStatus by rememberSaveable { mutableStateOf("正在加载高德地图预览。") }
-    val elapsedSeconds by produceState(0L) {
-        while (true) {
-            kotlinx.coroutines.delay(1000)
-            value++
-        }
-    }
-    val elapsedMin = elapsedSeconds / 60
-    val elapsedSec = elapsedSeconds % 60
+
+    // SenseFlow 场景分析服务
+    val sceneService = remember { SceneAnalysisService(context, lifecycleOwner, LocationService(context)) }
+    var currentSceneName by remember { mutableStateOf("等待分析...") }
+    var currentFeedbackStrategy by remember { mutableStateOf("语音为主") }
 
     LaunchedEffect(destination) {
         XunfeiSpeechManager.initXunfei(context)
@@ -757,12 +839,50 @@ fun TravelNavigationScreen(
         }
     }
 
+    // 启动场景分析服务，在出行中持续运行
+    LaunchedEffect(Unit) {
+        sceneService.start()
+        sceneService.setPreviewView(androidx.camera.view.PreviewView(context))
+    }
+
     DisposableEffect(Unit) {
         onDispose {
+            sceneService.stop()
             AmapNavigationManager.stopNavi()
             AmapNavigationManager.release()
         }
     }
+
+    // 监听场景变化
+    LaunchedEffect(sceneService) {
+        snapshotFlow { sceneService.getCurrentState() }.collect { state ->
+            currentSceneName = when (state.sceneType) {
+                SenseSceneType.INDOOR_QUIET -> "安静室内"
+                SenseSceneType.INDOOR_NOISY -> "嘈杂室内"
+                SenseSceneType.OUTDOOR_QUIET -> "安静户外"
+                SenseSceneType.OUTDOOR_NOISY -> "嘈杂户外"
+                SenseSceneType.SOCIAL -> "社交场景"
+                SenseSceneType.TRAFFIC -> "交通环境"
+                SenseSceneType.UNKNOWN -> "未知场景"
+            }
+            currentFeedbackStrategy = when (state.feedbackStrategy) {
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.VOICE_MAIN -> "语音为主"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.VIBRATION_MAIN -> "震动为主"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.SHORT_VOICE_WITH_VIBRATION -> "短语音+震动"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.SILENT_SCREEN -> "静默模式"
+                com.mindeye.app.feature.senseflow.domain.FeedbackStrategy.EMERGENCY_INTERRUPT -> "紧急中断"
+            }
+        }
+    }
+
+    val elapsedSeconds by produceState(0L) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            value++
+        }
+    }
+    val elapsedMin = elapsedSeconds / 60
+    val elapsedSec = elapsedSeconds % 60
 
     Scaffold(
         topBar = {
@@ -803,7 +923,22 @@ fun TravelNavigationScreen(
                 else "未配置有效的高德地图 Key，无法启动原生无障碍导航。请先在 local.properties 中补充 amap.api.key，并在高德控制台完成包名与 SHA1 绑定。"
             )
             PlanCard("出行时长", String.format("%02d:%02d", elapsedMin, elapsedSec))
-            PlanCard("路线提醒", "保持手机朝前，注意前方障碍物和路口。地图 SDK 接入后将提供精确转弯和偏航提醒。")
+
+            // SenseFlow 实时场景分析展示
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("随境 SenseFlow", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("当前场景: $currentSceneName", style = MaterialTheme.typography.bodyLarge)
+                    Text("反馈策略: $currentFeedbackStrategy", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            PlanCard("路线提醒", "保持手机朝前，注意前方障碍物和路口。随境 SenseFlow 正在实时分析环境并自动切换提醒策略。")
             PlanCard("避障提醒", "出行中可按需调用明心之眼短时扫描前方环境。")
             Button(
                 onClick = onQuickAsk,
