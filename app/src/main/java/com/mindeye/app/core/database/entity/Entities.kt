@@ -80,89 +80,11 @@ data class EmergencyContactEntity(
 )
 
 /**
- * 评论实体
- */
-@Entity(tableName = "comments")
-data class CommentEntity(
-    @PrimaryKey val commentId: String,
-    val postId: String,
-    val userId: String,
-    val userName: String,
-    val content: String,
-    val createdAt: Long = System.currentTimeMillis()
-)
-
-/**
- * 求助请求实体
- */
-@Entity(tableName = "help_requests")
-data class HelpRequestEntity(
-    @PrimaryKey val requestId: String,
-    val requesterId: String,
-    val requesterName: String,
-    val content: String,
-    val location: String? = null,
-    val latitude: Double? = null,
-    val longitude: Double? = null,
-    val status: String = "PENDING",  // PENDING, ACCEPTED, COMPLETED, CANCELLED
-    val volunteerId: String? = null,
-    val volunteerName: String? = null,
-    val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
-) {
-    fun toDomainModel(): com.mindeye.app.core.model.HelpRequest {
-        return com.mindeye.app.core.model.HelpRequest(
-            id = requestId,
-            requesterId = requesterId,
-            requesterName = requesterName,
-            content = content,
-            location = location,
-            latitude = latitude,
-            longitude = longitude,
-            status = when (status) {
-                "ACCEPTED" -> com.mindeye.app.core.model.HelpRequestStatus.ACCEPTED
-                "COMPLETED" -> com.mindeye.app.core.model.HelpRequestStatus.COMPLETED
-                "CANCELLED" -> com.mindeye.app.core.model.HelpRequestStatus.CANCELLED
-                else -> com.mindeye.app.core.model.HelpRequestStatus.PENDING
-            },
-            volunteerId = volunteerId,
-            volunteerName = volunteerName,
-            timestamp = createdAt
-        )
-    }
-}
-
-/**
- * AI问答记录实体
- */
-@Entity(tableName = "ai_qa_history")
-data class AiQaEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val userId: String,
-    val question: String,
-    val answer: String,
-    val timestamp: Long = System.currentTimeMillis()
-)
-
-/**
- * 鼓励语实体
- */
-@Entity(tableName = "encouragements")
-data class EncouragementEntity(
-    @PrimaryKey val id: String,
-    val userId: String,
-    val content: String,
-    val triggerScene: String,
-    val isRead: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
-)
-
-/**
  * 设置实体
  */
 @Entity(tableName = "settings")
 data class SettingsEntity(
     @PrimaryKey val key: String,
     val value: String,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long
 )

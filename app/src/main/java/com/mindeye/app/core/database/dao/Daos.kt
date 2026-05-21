@@ -124,31 +124,6 @@ interface EmergencyContactDao {
 }
 
 /**
- * 评论数据访问对象
- */
-@Dao
-interface CommentDao {
-
-    @Query("SELECT * FROM comments WHERE postId = :postId ORDER BY createdAt DESC LIMIT :limit")
-    suspend fun getCommentsByPostId(postId: String, limit: Int = 20): List<CommentEntity>
-
-    @Query("SELECT COUNT(*) FROM comments WHERE postId = :postId")
-    suspend fun getCommentCount(postId: String): Int
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertComment(comment: CommentEntity)
-
-    @Delete
-    suspend fun deleteComment(comment: CommentEntity)
-
-    @Query("DELETE FROM comments WHERE postId = :postId")
-    suspend fun deleteCommentsByPostId(postId: String)
-
-    @Query("DELETE FROM comments WHERE createdAt < :thresholdTime")
-    suspend fun deleteOldComments(thresholdTime: Long)
-}
-
-/**
  * 设置数据访问对象
  */
 @Dao
@@ -168,82 +143,4 @@ interface SettingsDao {
 
     @Query("SELECT * FROM settings")
     suspend fun getAllSettings(): List<SettingsEntity>
-}
-
-/**
- * 求助请求数据访问对象
- */
-@Dao
-interface HelpRequestDao {
-
-    @Query("SELECT * FROM help_requests WHERE status = 'PENDING' ORDER BY createdAt DESC LIMIT :limit")
-    fun getPendingRequestsFlow(limit: Int = 50): kotlinx.coroutines.flow.Flow<List<HelpRequestEntity>>
-
-    @Query("SELECT * FROM help_requests WHERE volunteerId = :volunteerId ORDER BY createdAt DESC")
-    fun getVolunteerRequestsFlow(volunteerId: String): kotlinx.coroutines.flow.Flow<List<HelpRequestEntity>>
-
-    @Query("SELECT * FROM help_requests WHERE status = 'PENDING' ORDER BY createdAt DESC LIMIT :limit")
-    suspend fun getPendingRequests(limit: Int = 50): List<HelpRequestEntity>
-
-    @Query("SELECT * FROM help_requests WHERE requesterId = :userId ORDER BY createdAt DESC")
-    suspend fun getUserRequests(userId: String): List<HelpRequestEntity>
-
-    @Query("SELECT * FROM help_requests WHERE volunteerId = :volunteerId ORDER BY createdAt DESC")
-    suspend fun getVolunteerRequests(volunteerId: String): List<HelpRequestEntity>
-
-    @Query("SELECT * FROM help_requests WHERE requestId = :requestId")
-    suspend fun getRequestById(requestId: String): HelpRequestEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertRequest(request: HelpRequestEntity)
-
-    @Query("UPDATE help_requests SET status = :status, volunteerId = :volunteerId, volunteerName = :volunteerName, updatedAt = :updatedAt WHERE requestId = :requestId")
-    suspend fun acceptRequest(requestId: String, status: String, volunteerId: String, volunteerName: String, updatedAt: Long)
-
-    @Query("UPDATE help_requests SET status = :status, updatedAt = :updatedAt WHERE requestId = :requestId")
-    suspend fun updateStatus(requestId: String, status: String, updatedAt: Long)
-
-    @Query("DELETE FROM help_requests WHERE createdAt < :thresholdTime")
-    suspend fun deleteOldRequests(thresholdTime: Long)
-}
-
-/**
- * AI问答数据访问对象
- */
-@Dao
-interface AiQaDao {
-
-    @Query("SELECT * FROM ai_qa_history WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
-    suspend fun getUserQaHistory(userId: String, limit: Int = 50): List<AiQaEntity>
-
-    @Query("SELECT * FROM ai_qa_history ORDER BY timestamp DESC LIMIT :limit")
-    suspend fun getRecentQaHistory(limit: Int = 50): List<AiQaEntity>
-
-    @Insert
-    suspend fun insertQa(qa: AiQaEntity)
-
-    @Query("DELETE FROM ai_qa_history WHERE timestamp < :thresholdTime")
-    suspend fun deleteOldQa(thresholdTime: Long)
-}
-
-/**
- * 鼓励语数据访问对象
- */
-@Dao
-interface EncouragementDao {
-
-    @Query("SELECT * FROM encouragements WHERE userId = :userId ORDER BY createdAt DESC LIMIT :limit")
-    suspend fun getUserEncouragements(userId: String, limit: Int = 20): List<EncouragementEntity>
-
-    @Query("SELECT * FROM encouragements WHERE userId = :userId AND isRead = 0 ORDER BY createdAt DESC")
-    suspend fun getUnreadEncouragements(userId: String): List<EncouragementEntity>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEncouragement(encouragement: EncouragementEntity)
-
-    @Query("UPDATE encouragements SET isRead = 1 WHERE id = :id")
-    suspend fun markAsRead(id: String)
-
-    @Query("DELETE FROM encouragements WHERE createdAt < :thresholdTime")
-    suspend fun deleteOldEncouragements(thresholdTime: Long)
 }

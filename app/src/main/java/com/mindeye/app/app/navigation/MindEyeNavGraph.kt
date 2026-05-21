@@ -24,8 +24,6 @@ import com.mindeye.app.feature.mindeye.ui.OcrScreen
 import com.mindeye.app.feature.home.ui.HomeScreen
 import com.mindeye.app.feature.psychology.ui.SupportScreen
 import com.mindeye.app.feature.community.ui.CommunityScreen
-import com.mindeye.app.feature.volunteer.ui.VolunteerScreen
-import com.mindeye.app.feature.volunteer.viewmodel.VolunteerViewModel
 import com.mindeye.app.feature.sos.ui.EmergencyScreen
 import com.mindeye.app.feature.home.viewmodel.HomeViewModel
 import com.mindeye.app.feature.psychology.viewmodel.SupportViewModel
@@ -50,7 +48,6 @@ sealed class Screen(val route: String) {
     data object QuickAsk : Screen("quick_ask")
     data object Psychology : Screen("psychology")
     data object Community : Screen("community")
-    data object Volunteer : Screen("volunteer")
     data object Emergency : Screen("emergency")
     data object Settings : Screen("settings")
     data object Ocr : Screen("ocr")
@@ -178,15 +175,6 @@ fun MindEyeNavGraph(
             val viewModel: CommunityViewModel = hiltViewModel()
             CommunityScreen(
                 viewModel = viewModel,
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToVolunteer = { navController.navigate(Screen.Volunteer.route) }
-            )
-        }
-
-        composable(Screen.Volunteer.route) {
-            val viewModel: VolunteerViewModel = hiltViewModel()
-            VolunteerScreen(
-                viewModel = viewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -203,8 +191,7 @@ fun MindEyeNavGraph(
             val viewModel: SettingsViewModel = hiltViewModel()
             SettingsScreen(
                 viewModel = viewModel,
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToVolunteer = { navController.navigate(Screen.Volunteer.route) }
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

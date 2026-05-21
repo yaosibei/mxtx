@@ -1,23 +1,19 @@
 package com.mindeye.app.feature.community.data
 
 import com.mindeye.app.core.model.CommunityPost
-import com.mindeye.app.core.model.Comment
 import com.mindeye.app.core.model.PostType
-import com.mindeye.app.core.database.dao.CommentDao
 import com.mindeye.app.core.database.dao.PostCacheDao
 import com.mindeye.app.core.database.entity.PostCacheEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 class PostRepository(
-    private val postCacheDao: PostCacheDao,
-    private val commentDao: CommentDao
+    private val postCacheDao: PostCacheDao
 ) {
 
     suspend fun getCachedPosts(limit: Int = 50): List<CommunityPost> {
         val cachedPosts = postCacheDao.getCachedPosts(limit)
         return cachedPosts.map { entity ->
-            val comments = commentDao.getCommentsByPostId(entity.postId)
             CommunityPost(
                 id = entity.postId,
                 userId = entity.authorId,
@@ -26,8 +22,7 @@ class PostRepository(
                 postType = PostType.TEXT,
                 likes = entity.likeCount,
                 comments = entity.commentCount,
-                timestamp = entity.createdAt,
-                commentList = comments.map { it.toDomainModel() }
+                timestamp = entity.createdAt
             )
         }
     }
@@ -35,7 +30,6 @@ class PostRepository(
     suspend fun getPostDetail(postId: String): CommunityPost? {
         val cachedPost = postCacheDao.getPostById(postId)
         return cachedPost?.let { entity ->
-            val comments = commentDao.getCommentsByPostId(entity.postId)
             CommunityPost(
                 id = entity.postId,
                 userId = entity.authorId,
@@ -44,8 +38,7 @@ class PostRepository(
                 postType = PostType.TEXT,
                 likes = entity.likeCount,
                 comments = entity.commentCount,
-                timestamp = entity.createdAt,
-                commentList = comments.map { it.toDomainModel() }
+                timestamp = entity.createdAt
             )
         }
     }
@@ -81,14 +74,6 @@ class PostRepository(
 
     suspend fun addComment(postId: String, userId: String, userName: String, content: String): Boolean {
         return try {
-            val commentEntity = com.mindeye.app.core.database.entity.CommentEntity(
-                commentId = System.currentTimeMillis().toString(),
-                postId = postId,
-                userId = userId,
-                userName = userName,
-                content = content
-            )
-            commentDao.insertComment(commentEntity)
             postCacheDao.incrementComments(postId)
             true
         } catch (e: Exception) {
@@ -110,17 +95,5 @@ class PostRepository(
     suspend fun cleanupOldPosts() {
         val thresholdTime = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
         postCacheDao.deleteOldPosts(thresholdTime)
-        commentDao.deleteOldComments(thresholdTime)
-    }
-
-    private fun com.mindeye.app.core.database.entity.CommentEntity.toDomainModel(): Comment {
-        return Comment(
-            id = commentId,
-            postId = postId,
-            userId = userId,
-            userName = userName,
-            content = content,
-            timestamp = createdAt
-        )
     }
 }

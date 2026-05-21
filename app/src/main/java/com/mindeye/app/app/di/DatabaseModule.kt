@@ -59,31 +59,7 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideCommentDao(database: AppDatabase): CommentDao {
-        return database.commentDao()
-    }
-
-    @Provides
-    @Singleton
     fun provideSettingsDao(database: AppDatabase): SettingsDao {
         return database.settingsDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideHelpRequestDao(database: AppDatabase): HelpRequestDao {
-        return database.helpRequestDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideAiQaDao(database: AppDatabase): AiQaDao {
-        return database.aiQaDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideEncouragementDao(database: AppDatabase): EncouragementDao {
-        return database.encouragementDao()
     }
 }
