@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,7 +29,8 @@ import com.mindeye.app.feature.settings.viewmodel.SettingsViewModel
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToVolunteer: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -54,6 +56,20 @@ fun SettingsScreen(
             SettingRow("长辈模式", "大按钮、大字号、简化页面", uiState.elderlyMode) { viewModel.setElderlyMode(it) }
             SettingRow("高对比度", "提高文字和按钮可见性", uiState.highContrast) { viewModel.setHighContrast(it) }
             SettingRow("自动鼓励", "室内安静时，根据最近出行生成温和鼓励语", uiState.autoEncouragement) { viewModel.setAutoEncouragement(it) }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("志愿者中心", style = MaterialTheme.typography.titleLarge)
+                    Text("成为志愿者，帮助需要帮助的人", style = MaterialTheme.typography.bodyMedium)
+                }
+                IconButton(onClick = onNavigateToVolunteer) {
+                    Icon(Icons.Default.VolunteerActivism, contentDescription = "志愿者中心")
+                }
+            }
         }
     }
 }
